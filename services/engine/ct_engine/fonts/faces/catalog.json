@@ -1,0 +1,90 @@
+{
+  "version": 1,
+  "faces": [
+    {
+      "id": "noto-sans",
+      "name": "Noto Sans",
+      "look": "sans",
+      "label": "Noto Sans",
+      "hint": "Clear and plain, for most worksheets",
+      "files": {
+        "regular": "noto-sans/NotoSans-Regular.ttf",
+        "bold": "noto-sans/NotoSans-Bold.ttf",
+        "italic": "noto-sans/NotoSans-Italic.ttf",
+        "bold_italic": "noto-sans/NotoSans-BoldItalic.ttf"
+      },
+      "covers": ["es", "pt", "fr", "ht", "vi", "pl", "ru", "uk"]
+    },
+    {
+      "id": "noto-serif",
+      "name": "Noto Serif",
+      "look": "serif",
+      "label": "Noto Serif",
+      "hint": "Like a printed book",
+      "files": {
+        "regular": "noto-serif/NotoSerif-Regular.ttf",
+        "bold": "noto-serif/NotoSerif-Bold.ttf",
+        "italic": "noto-serif/NotoSerif-Italic.ttf",
+        "bold_italic": "noto-serif/NotoSerif-BoldItalic.ttf"
+      },
+      "covers": ["es", "pt", "fr", "ht", "vi", "pl", "ru", "uk"]
+    },
+    {
+      "id": "open-sans",
+      "name": "Open Sans",
+      "look": "sans",
+      "label": "Open Sans",
+      "hint": "Friendly and open, easy on screens",
+      "files": {
+        "regular": "open-sans/OpenSans-Regular.ttf",
+        "bold": "open-sans/OpenSans-Bold.ttf",
+        "italic": "open-sans/OpenSans-Italic.ttf",
+        "bold_italic": "open-sans/OpenSans-BoldItalic.ttf"
+      },
+      "covers": ["es", "pt", "fr", "ht", "vi", "pl", "ru", "uk", "he"]
+    },
+    {
+      "id": "andika",
+      "name": "Andika",
+      "look": "sans",
+      "label": "Andika",
+      "hint": "For early readers: letters as they are taught",
+      "files": {
+        "regular": "andika/Andika-Regular.ttf",
+        "bold": "andika/Andika-Bold.ttf",
+        "italic": "andika/Andika-Italic.ttf",
+        "bold_italic": "andika/Andika-BoldItalic.ttf"
+      },
+      "covers": ["es", "pt", "fr", "ht", "vi", "pl", "ru", "uk"]
+    },
+    {
+      "id": "lexend",
+      "name": "Lexend",
+      "look": "sans",
+      "label": "Lexend",
+      "hint": "Wide and even, easier for some readers",
+      "files": {
+        "regular": "lexend/Lexend-Regular.ttf",
+        "bold": "lexend/Lexend-Bold.ttf",
+        "italic": null,
+        "bold_italic": null
+      },
+      "covers": ["es", "pt", "fr", "ht", "vi", "pl"]
+    },
+    {
+      "id": "comic-neue",
+      "name": "Comic Neue",
+      "look": "sans",
+      "label": "Comic Neue",
+      "hint": "Like handwriting",
+      "files": {
+        "regular": "comic-neue/ComicNeue-Regular.ttf",
+        "bold": "comic-neue/ComicNeue-Bold.ttf",
+        "italic": "comic-neue/ComicNeue-Italic.ttf",
+        "bold_italic": "comic-neue/ComicNeue-BoldItalic.ttf"
+      },
+      "covers": ["es", "pt", "fr", "ht", "pl"]
+    }
+  ],
+  "marks": "marks/NotoSansSymbols2-Regular.ttf"
+}

@@ -1,0 +1,82 @@
+# Fly.io configuration for the document engine.
+#
+# Deploy:  cd services/engine
+#          flyctl launch --copy-config --no-deploy
+#          flyctl volumes create ct_data --size 3 --region ewr
+#          flyctl deploy
+#
+# See the README deployment section for why this cannot go on Vercel:
+# PyMuPDF plus a translation model exceeds serverless size limits, and a
+# 100-page job outruns the function timeout.
+
+app = "classroom-translate-engine"
+primary_region = "ewr"          # Newark: closest region to New York districts
+
+[build]
+  dockerfile = "Dockerfile"
+
+  # Keep the offline model. Route B exists so that no document text reaches
+  # a third party, and the Dockerfile now defaults it off for the free
+  # hosted route -- so this is the flag that makes Fly's build the private
+  # one. Dropping it would silently turn Fly into a DeepL client.
+  [build.args]
+    LOCAL_TRANSLATION = "1"
+
+[env]
+  CT_ENVIRONMENT = "production"
+  CT_LOG_LEVEL = "INFO"
+  # Uploads live on the mounted volume below, so they survive a restart --
+  # which is what makes an interrupted job resumable.
+  CT_STORAGE_ROOT = "/data"
+  CT_STORAGE_BACKEND = "local"
+  # Student work is deleted automatically, and document text never reaches
+  # the logs. Both are defaults; they are stated here so a reader of this
+  # file can see the posture without digging.
+  CT_RETENTION_HOURS = "24"
+  CT_LOG_DOCUMENT_TEXT = "false"
+  CT_TRANSLATION_PROVIDER = "local"
+  CT_OCR_PROVIDER = "local"
+  # A single machine holds the volume, so page work is the only parallelism.
+  CT_PAGE_CONCURRENCY = "4"
+  CT_MAX_JOB_CONCURRENCY = "2"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  # Safe to suspend when idle: the engine picks up interrupted jobs on boot
+  # (JobRunner.resume_interrupted) and page state is persisted after every
+  # page. Without that, suspending an idle machine would silently abandon a
+  # translation that was still running.
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # Kept at 1 rather than 0: waking from zero reloads the translation model,
+  # which makes the first request after an idle period very slow.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    # Document work is CPU-bound, so queue rather than thrash.
+    soft_limit = 6
+    hard_limit = 12
+
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "6s"
+  # Generous: the first boot loads fonts and the translation model.
+  grace_period = "90s"
+  method = "GET"
+  path = "/api/health"
+
+[[mounts]]
+  source = "ct_data"
+  destination = "/data"
+
+[[vm]]
+  # Measured peak RSS on a real 37-page packet: 185 MB parsing and running
+  # OCR, 605 MB once the offline translation model is loaded. 1 GB is
+  # therefore comfortable; 2 GB was a guess and cost twice as much.
+  #
+  # Build with --build-arg LOCAL_TRANSLATION=0 and set a remote provider to
+  # stay under 512 MB, which fits several free tiers.
+  size = "shared-cpu-1x"
+  memory = "1gb"

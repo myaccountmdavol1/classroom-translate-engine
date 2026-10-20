@@ -1,0 +1,131 @@
+# Render blueprint for the document engine.
+#
+# Deploy:
+#   1. Push this repo to GitHub.
+#   2. render.com -> New -> Blueprint -> pick the repo.
+#   3. Set Blueprint Path to `services/engine/render.yaml`. Render looks at
+#      the repo root by default and will not find this file.
+#   4. Fill in the three values marked `sync: false` when prompted.
+#
+# WHY RENDER'S FREE TIER, AND WHAT IT COSTS YOU
+#
+# The free instance has 512 MB of RAM and no persistent disk, and it stops
+# after 15 minutes with no traffic. LOCAL_TRANSLATION=0 leaves out the
+# offline model, which alone needs ~320 MB and 3 GB of image: translation
+# happens at a provider instead of on the machine.
+#
+# This file used to claim a measured peak of 286 MB. That was wrong, and
+# the first real 37-page packet proved it by being OOM-killed. Measured
+# again, properly: 432 MB peak in-process, and Tesseract runs as a child
+# process on top of that. Only ~84 MB of the peak is Python -- the rest is
+# MuPDF and PIL rasterizing pages, which is why it is invisible to the
+# garbage collector and why the process never gives it back.
+#
+# Two things below fight that, and the settings are load-bearing:
+# grey OCR rasterization in the code (a 300 DPI page is ~25 MB in colour
+# and ~8 MB in grey), and the MALLOC_* variables here.
+#
+# Two consequences to be honest about:
+#
+#   * The first upload after an idle period waits ~40s for the container to
+#     start. Subsequent ones are immediate.
+#   * There is no disk. A document lives in the container and is gone when
+#     the container stops -- which is sooner than the 24-hour retention
+#     window, not later. Nothing is kept longer than promised; work in
+#     progress can be lost if the service restarts mid-translation, so a
+#     teacher should download the finished file rather than leave it.
+#
+# For a persistent disk and no cold start, use fly.toml instead (~$5/month).
+
+services:
+  - type: web
+    name: classroom-translate-engine
+    runtime: docker
+    plan: free
+    region: ohio
+    # Both paths resolve from the REPO ROOT, not from this file's directory.
+    dockerfilePath: ./services/engine/Dockerfile
+    dockerContext: ./services/engine
+    # There is deliberately no build-argument here: Render's Blueprint spec
+    # has no field for one. The Dockerfile's own default leaves out torch
+    # and the offline model -- 3 GB of image and ~320 MB of RAM that a
+    # remote provider makes unnecessary.
+    healthCheckPath: /api/health
+    envVars:
+      - key: CT_ENVIRONMENT
+        value: production
+      - key: CT_LOG_LEVEL
+        value: INFO
+
+      # glibc allocator tuning, not application config. The engine frees
+      # its page buffers and the process still does not shrink: measured
+      # resident memory ends a job equal to its own peak. Large blocks
+      # freed back to an arena are not returned to the kernel, and glibc
+      # raises its own mmap threshold as it goes, so later big allocations
+      # stop being independently unmappable. Pinning the threshold and
+      # capping arenas keeps rasterization buffers on mmap, where a free
+      # actually releases the pages.
+      #
+      # Unverified here: this behaviour is glibc's, and the measurements
+      # above were taken on macOS, which does not use it. Render is where
+      # it can be confirmed or ruled out.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: MALLOC_MMAP_THRESHOLD_
+        value: "131072"
+      - key: MALLOC_TRIM_THRESHOLD_
+        value: "131072"
+
+      # The shared code a teacher types once. Set it to something you can
+      # say out loud; it is the only thing between this service and anyone
+      # who finds the address.
+      - key: CT_ACCESS_PASSPHRASE
+        sync: false
+
+      # Where the web app is served from. The engine refuses browser
+      # requests from anywhere else.
+      - key: CT_CORS_ORIGINS
+        sync: false
+
+      # Translation engines, in order. DeepL first; when its free monthly
+      # allowance is used up the rest of the month goes to Google, so two
+      # free plans are used before anything costs money. Without a Google
+      # key the engine simply uses DeepL alone, as before. DeepL's free tier
+      # reports 1,000,000 characters a month; the 37-page packet used 7,338.
+      - key: CT_TRANSLATION_PROVIDER
+        value: deepl,google
+      - key: CT_DEEPL_API_KEY
+        sync: false
+      # Google Cloud Translation API key. Its first 500,000 characters a
+      # month are free; set a daily quota in Google Cloud so it cannot go
+      # past that (see DEPLOYING.md).
+      - key: CT_GOOGLE_TRANSLATE_API_KEY
+        sync: false
+
+      # Tesseract is installed in the image, so scanned pages still work.
+      - key: CT_OCR_PROVIDER
+        value: local
+
+      # Student work is deleted automatically, and document text never
+      # reaches the logs. Both are defaults; stated so a reader of this
+      # file can see the posture without digging.
+      - key: CT_RETENTION_HOURS
+        value: "24"
+      - key: CT_LOG_DOCUMENT_TEXT
+        value: "false"
+
+      # The container filesystem. Ephemeral on the free plan -- see above.
+      - key: CT_STORAGE_ROOT
+        value: /data
+      - key: CT_STORAGE_BACKEND
+        value: local
+
+      # One small instance: keep page work modest so a 512 MB box is not
+      # driven into swap by a long document.
+      # One page at a time: a 20-slide deck of photographs, read two at a
+      # time with LibreOffice and the OCR reader alongside, went past 512 MB
+      # and the host restarted the service. Slower, but it finishes.
+      - key: CT_PAGE_CONCURRENCY
+        value: "1"
+      - key: CT_MAX_JOB_CONCURRENCY
+        value: "1"

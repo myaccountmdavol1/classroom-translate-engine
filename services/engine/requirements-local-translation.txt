@@ -1,0 +1,18 @@
+# Optional: offline translation with Argos Translate (CTranslate2 + OpenNMT).
+#
+# Install this only if you want CT_TRANSLATION_PROVIDER=local. It pulls in
+# torch and spaCy and adds roughly 3 GB, which is why it is not in the base
+# requirements. Without it, the engine still runs -- the local provider
+# simply reports that offline translation is not installed, and a remote
+# provider can be configured instead.
+#
+#   pip install -r requirements-local-translation.txt
+#
+# Language packs (~100 MB each) download on first use and are cached.
+argostranslate==1.11.0
+
+# Right-to-left shaping. Without these, Arabic and Urdu render as
+# disconnected isolated letterforms. Small, pure Python, and worth having
+# whenever an RTL language may be selected.
+arabic-reshaper==3.0.1
+python-bidi==0.6.11
