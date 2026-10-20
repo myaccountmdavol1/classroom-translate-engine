@@ -21,7 +21,7 @@ import time
 import httpx
 
 from ...config import get_settings
-from ...languages import get_language
+from ...languages import can_translate_into, get_language
 from ...util.logging import get_logger
 from ..registry import register_translation
 from .base import (
@@ -271,7 +271,7 @@ class GoogleTranslationProvider(_CachingProvider):
         )
 
     def supports(self, source_lang: str | None, target_lang: str) -> bool:
-        return get_language(target_lang) is not None
+        return can_translate_into(target_lang)
 
     def _quota_until(self, exc: httpx.HTTPStatusError) -> _dt.datetime | None:
         if exc.response.status_code != 403:
@@ -380,8 +380,10 @@ class DeepLTranslationProvider(_CachingProvider):
     _UNSUPPORTED = {"ht", "bn", "ur", "he"}
 
     def supports(self, source_lang: str | None, target_lang: str) -> bool:
+        if not can_translate_into(target_lang):
+            return False
         lang = get_language(target_lang)
-        return lang is not None and lang.base not in self._UNSUPPORTED
+        return lang is None or lang.base not in self._UNSUPPORTED
 
     @staticmethod
     def _code(target: str) -> str:
@@ -514,7 +516,7 @@ class _LLMProvider(_CachingProvider):
     sends_data_externally = True
 
     def supports(self, source_lang: str | None, target_lang: str) -> bool:
-        return get_language(target_lang) is not None
+        return can_translate_into(target_lang)
 
     def _build_prompt(self, segments, source_lang, target_lang) -> tuple[str, str]:
         src = get_language(source_lang)

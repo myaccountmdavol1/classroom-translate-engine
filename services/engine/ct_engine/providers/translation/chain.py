@@ -45,6 +45,9 @@ ALLOWANCE_USED_UP_TODAY = (
 SERVICE_UNREACHABLE = (
     "The translation service did not answer. Please try again in a few minutes."
 )
+# No engine here offers the language at all: waiting will not help, so she
+# is not told to try again.
+LANGUAGE_UNAVAILABLE = "Translation into this language is not available."
 
 
 def _now() -> _dt.datetime:
@@ -120,6 +123,9 @@ def untranslated_reason(
     Only say "used up" when it is true: an engine that timed out or answered
     5xx still has its allowance, and she should try again rather than wait.
     """
+    members = getattr(provider, "providers", None) or [provider]
+    if not any(p.supports(source_lang, target_lang) for p in members):
+        return LANGUAGE_UNAVAILABLE
     until = exhausted_until(provider, source_lang, target_lang)
     if until is None:
         return SERVICE_UNREACHABLE

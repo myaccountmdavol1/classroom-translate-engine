@@ -37,6 +37,7 @@ executor does; scripts/run_packet_via_relay.py shows the native equivalent.
 from __future__ import annotations
 
 import contextvars
+import sys
 import functools
 import os
 from typing import Callable, ClassVar
@@ -91,6 +92,32 @@ CLASS_CODE_REFUSED = (
 
 # Tests replace this with an httpx.MockTransport.
 _transport: httpx.BaseTransport | None = None
+
+# Headers a page may not set on a request: httpx adds them, and the
+# browser's XMLHttpRequest refuses each one with a console error (Safari
+# prints every refusal) before sending the request without them.
+_FORBIDDEN_HEADERS = ("host", "accept-encoding", "connection", "content-length")
+
+
+class _BrowserSafeTransport(httpx.BaseTransport):
+    """The default transport, minus the headers the browser sets itself."""
+
+    def __init__(self) -> None:
+        self._inner = httpx.HTTPTransport()
+
+    def handle_request(self, request: httpx.Request) -> httpx.Response:
+        for name in _FORBIDDEN_HEADERS:
+            request.headers.pop(name, None)
+        return self._inner.handle_request(request)
+
+    def close(self) -> None:
+        self._inner.close()
+
+
+def _client_transport() -> httpx.BaseTransport | None:
+    if _transport is not None:
+        return _transport
+    return _BrowserSafeTransport() if sys.platform == "emscripten" else None
 
 
 class ClassCodeRefused(JobCancelled):
@@ -204,7 +231,7 @@ class _RelayMixin:
         origin = os.environ.get("CT_RELAY_ORIGIN", "").strip()
         if origin:
             headers["Origin"] = origin
-        with httpx.Client(timeout=RELAY_TIMEOUT, transport=_transport) as client:
+        with httpx.Client(timeout=RELAY_TIMEOUT, transport=_client_transport()) as client:
             resp = client.post(self._endpoint, headers=headers, json=payload)
 
         if resp.status_code == 401 and _says_access_required(resp):

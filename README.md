@@ -29,7 +29,7 @@ which are AGPL-3.0. Third-party components keep their own licences; see
 
 **Source offer.** If you use Classroom Translate, the browser downloads a
 build of this engine. Each build is named by a content hash (for example
-`3a1181079dbd`, served from `/engine/3a1181079dbd/`), and this repository
+`42171c7a7d51`, served from `/engine/42171c7a7d51/`), and this repository
 has a git tag `engine-<hash>` for every build deployed to users. That tag is
 the Corresponding Source for that build: check it out and follow "Building
 the browser bundle" below to reproduce it. The exact upstream sources of

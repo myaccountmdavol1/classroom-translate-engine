@@ -89,6 +89,19 @@ def is_supported(code: str | None) -> bool:
     return get_language(code) is not None
 
 
+# English is never a student's language here, so it is not in LANGUAGES, but
+# it is the language a teacher checks meaning in: "Check what it says in
+# English" translates a block back into it.
+_TEACHER_LANGUAGES = {"en"}
+
+
+def can_translate_into(code: str | None) -> bool:
+    """A language the engine may ask a translation service for."""
+    if get_language(code) is not None:
+        return True
+    return bool(code) and code.split("-")[0].lower() in _TEACHER_LANGUAGES
+
+
 # Display names for detected source languages. Detection returns ISO-639-1,
 # which may not be a target we support, so this map is intentionally wider.
 SOURCE_LANGUAGE_NAMES: dict[str, str] = {
