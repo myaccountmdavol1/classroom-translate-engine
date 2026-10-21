@@ -468,10 +468,11 @@ def test_an_old_manifest_loads_and_draws_unchanged(store):
     raw = manifest.model_dump(mode="json")
     for page in raw["pages"]:
         for t in page["text_objects"]:
-            t.pop("manual_shape")
+            for name in ("manual_shape", "manual_shape_adjust", "manual_line_start", "manual_line_end"):
+                t.pop(name)
             if t.get("drawn_layout"):
-                t["drawn_layout"].pop("shape")
-                t["drawn_layout"].pop("frame")
+                for name in ("shape", "frame", "shape_adjust", "line_start", "line_end"):
+                    t["drawn_layout"].pop(name)
     old = DocumentManifest.model_validate(raw)
     assert all(t.manual_shape is None for t in old.page(0).text_objects)
     assert np.array_equal(_render(old, store), before)

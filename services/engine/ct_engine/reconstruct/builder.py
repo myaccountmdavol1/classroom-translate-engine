@@ -540,15 +540,19 @@ def shape_frame(layout: DrawnLayout, rect: Rect) -> tuple[Rect, float]:
 
 
 def shape_outline(
-    layout: DrawnLayout, rect: Rect, dx: float = 0.0, dy: float = 0.0
+    layout: DrawnLayout, rect: Rect, dx: float = 0.0, dy: float = 0.0,
+    cmds: list[tuple] | None = None,
 ) -> list[tuple]:
     """The shape's outline in page points: shapes.outline in its frame,
     every point turned (Bezier control points too) about the frame's
-    centre, then moved by (dx, dy)."""
+    centre, then moved by (dx, dy). `cmds`, in the frame's own points,
+    are placed instead of the outline (a line's stroke and heads)."""
     frame, angle = shape_frame(layout, rect)
-    cmds = shape_geo.placed(
-        shape_geo.outline(layout.shape, frame.width, frame.height), frame.x0, frame.y0
-    )
+    if cmds is None:
+        cmds = shape_geo.outline(
+            layout.shape, frame.width, frame.height, layout.shape_adjust
+        )
+    cmds = shape_geo.placed(cmds, frame.x0, frame.y0)
     pivot = frame.center
     out: list[tuple] = []
     for c in cmds:
@@ -564,7 +568,10 @@ def shape_outline(
 
 
 def _draw_outline(page: "fitz.Page", cmds: list[tuple], **finish) -> None:
-    """One closed path of joined lines and Beziers, finished as given."""
+    """One path of joined lines and Beziers, finished as given: closed when
+    it ends in Z, open (a line, an open arrowhead) when not."""
+    if not cmds:
+        return
     shape = page.new_shape()
     cur = None
     for c in cmds:
@@ -578,8 +585,35 @@ def _draw_outline(page: "fitz.Page", cmds: list[tuple], **finish) -> None:
             p = fitz.Point(c[5], c[6])
             shape.draw_bezier(cur, fitz.Point(c[1], c[2]), fitz.Point(c[3], c[4]), p)
             cur = p
-    shape.finish(closePath=True, **finish)
+    shape.finish(closePath=cmds[-1][0] == "Z", **finish)
     shape.commit(overlay=True)
+
+
+def paint_line(
+    page: "fitz.Page", layout: DrawnLayout, rect: Rect, dx: float = 0.0, dy: float = 0.0
+) -> None:
+    """A line she drew (shapes.line_drawing): the stroke, pulled back for
+    its ends, in her colour, weight and dash; then each end as its own
+    solid shape, so the dashes start cleanly at the line's own start, as
+    the editor's SVG draws them."""
+    frame, _ = shape_frame(layout, rect)
+    w = layout.border_width
+    stroke, heads = shape_geo.line_drawing(
+        layout.shape, frame.width, w, layout.shape_adjust, layout.line_start, layout.line_end
+    )
+    dashes, cap = border_dashes(w, layout.border_dash)
+    _draw_outline(
+        page, shape_outline(layout, rect, dx, dy, stroke), color=layout.border, fill=None,
+        width=w, dashes=dashes, lineCap=cap, lineJoin=0,
+    )
+    for cmds, filled in heads:
+        placed = shape_outline(layout, rect, dx, dy, cmds)
+        if filled:
+            _draw_outline(page, placed, color=None, fill=layout.border, width=0)
+        else:
+            _draw_outline(
+                page, placed, color=layout.border, fill=None, width=w, lineCap=0, lineJoin=0
+            )
 
 
 def paint_fill(
@@ -587,7 +621,7 @@ def paint_fill(
 ) -> None:
     """Her background: the turned frame (quad) when turned, else `rect`. A
     shape's background fills its outline instead."""
-    if layout.fill is None:
+    if layout.fill is None or shape_geo.is_line(layout.shape):
         return
     if layout.shape is not None:
         _draw_outline(
@@ -629,6 +663,9 @@ def paint_border(
     the editor's is.
     """
     if layout.border is None or layout.border_width <= 0:
+        return
+    if shape_geo.is_line(layout.shape):
+        paint_line(page, layout, rect, dx, dy)
         return
     if layout.shape is not None:
         # The shape's outline, mitred (PDF's miter limit, 10, which the
@@ -956,6 +993,9 @@ def _shape_style(obj, frame: Rect) -> dict:
             x0=round(frame.x0, 3), y0=round(frame.y0, 3),
             x1=round(frame.x1, 3), y1=round(frame.y1, 3),
         ),
+        "shape_adjust": obj.manual_shape_adjust,
+        "line_start": obj.manual_line_start,
+        "line_end": obj.manual_line_end,
     }
 
 

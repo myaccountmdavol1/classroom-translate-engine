@@ -1260,6 +1260,11 @@ class EditRequest(BaseModel):
     # A box she made drawn as a shape (reconstruct/shapes.SHAPES): "rect",
     # "roundRect", "ellipse". A plain string, checked in pipeline/edit.
     shape: str | None = Field(default=None, max_length=32)
+    # A curve's bend (shape_adjust, 100000ths of its length) and a line's
+    # ends ("arrow", ..., or "none"), checked in pipeline/edit.
+    shape_adjust: list[float] | None = Field(default=None, max_length=8)
+    line_start: str | None = Field(default=None, max_length=20)
+    line_end: str | None = Field(default=None, max_length=20)
 
 
 class AddBlockRequest(BaseModel):
@@ -1330,8 +1335,12 @@ class BoxSpecIn(BaseModel):
     list_style: str | None = Field(default=None, max_length=20)
     list_start: int | None = None
     list_levels: list[int] | None = Field(default=None, max_length=200)
-    # Drawn as a shape (reconstruct/shapes.SHAPES); null is a plain box.
+    # Drawn as a shape (reconstruct/shapes.SHAPES), or a line ("line",
+    # "curve"); null is a plain box.
     shape: str | None = Field(default=None, max_length=32)
+    shape_adjust: list[float] | None = Field(default=None, max_length=8)
+    line_start: str | None = Field(default=None, max_length=20)
+    line_end: str | None = Field(default=None, max_length=20)
 
 
 class BatchAddRequest(BaseModel):
@@ -1378,6 +1387,9 @@ class BulkRequest(BaseModel):
     indent: int | None = None
     # Boxes she made drawn as this shape; others in the selection keep theirs.
     shape: str | None = Field(default=None, max_length=32)
+    # Lines' ends; the other boxes in the selection have none.
+    line_start: str | None = Field(default=None, max_length=20)
+    line_end: str | None = Field(default=None, max_length=20)
 
 
 def _line_heights(obj) -> tuple[float, float]:
@@ -1654,6 +1666,10 @@ def _block_out(obj, page_width: float = 612.0, page_height: float = 792.0) -> di
         # or null for a plain box. The name is passed on as stored: an
         # editor that does not know it draws a rectangle, as the engine does.
         "shape": obj.manual_shape,
+        # A curve's bend, and a line's ends (null: plain).
+        "shape_adjust": obj.manual_shape_adjust,
+        "line_start": obj.manual_line_start,
+        "line_end": obj.manual_line_end,
         # Space inside the box in points; 0 when none. The words lay out in
         # the box shrunk by it (fitting.inset), clamped the same way there.
         "padding": obj.manual_padding or 0,
@@ -1842,6 +1858,9 @@ def _run_edit(
                     indent=layout.indent,
                     list_levels=layout.list_levels,
                     shape=layout.shape,
+                    shape_adjust=layout.shape_adjust,
+                    line_start=layout.line_start,
+                    line_end=layout.line_end,
                     store=store,
                     target_lang=target,
                 )
@@ -1948,6 +1967,9 @@ def edit_block(
             body.list_start,
             body.indent,
             body.shape,
+            body.shape_adjust,
+            body.line_start,
+            body.line_end,
         )
     )
     if body.text is None and not has_layout and body.list_levels is None:
@@ -2143,7 +2165,7 @@ def bulk_edit_blocks(document_id: str, number: int, body: BulkRequest) -> dict:
             body.vertical_align, body.line_spacing, body.underline, body.highlight,
             body.border_color, body.border_width, body.border_dash, body.padding,
             body.angle, body.list_kind, body.list_style, body.list_start, body.indent,
-            body.shape,
+            body.shape, body.line_start, body.line_end,
         )
     ):
         raise _fail(400, "Nothing to change was provided.")
@@ -2177,6 +2199,8 @@ def bulk_edit_blocks(document_id: str, number: int, body: BulkRequest) -> dict:
             list_start=body.list_start,
             indent=body.indent,
             shape=body.shape,
+            line_start=body.line_start,
+            line_end=body.line_end,
             store=store,
             target_lang=target,
         ),

@@ -164,6 +164,7 @@ def apply_edit(
         raise EditError(f"Page {page_number} does not exist in this document.")
 
     obj = _editable_object(page, object_id)
+    _no_words_on_a_line(obj)
     levels = _levels(list_levels) if list_levels is not None else None
     cleaned = (new_text or "").strip()
     # A shape keeps its outline with no words in it, so she can take the
@@ -219,6 +220,9 @@ def reset_edit(
     # so a reload disables Undo" -- undo is server-side and rides along in
     # the manifest; it was this.)
     push_history(page)
+    # A line's place and turn are its two ends, which she drew: Reset keeps
+    # them, and gives it a new line's look.
+    held = (obj.manual_bbox, obj.manual_angle) if _is_line(obj) else None
     if obj.machine_translated_text is None:
         # Layout-only changes: keep the text, drop the placement overrides.
         obj.manual_bbox = None
@@ -235,6 +239,8 @@ def reset_edit(
         _clear_text_styles(obj)
         _clear_box_styles(obj)
         _shape_look(obj)
+        if held is not None:
+            obj.manual_bbox, obj.manual_angle = held
         obj.manually_edited = False
         return _rerender(manifest, page, obj, store=store, target_lang=target_lang)
 
@@ -274,13 +280,45 @@ SHAPE_DEFAULTS = {
 }
 
 
+# How a new line looks (the editor's LINE_LOOK): black, 1pt, solid. Its
+# ends and a curve's bend are kept, as the shape is.
+LINE_DEFAULTS = {
+    "manual_fill": None,
+    "manual_border_color": "#000000",
+    "manual_border_width": 1.0,
+    "manual_border_dash": None,
+    "manual_padding": None,
+}
+
+
 def _shape_look(obj: TextObject) -> None:
     """Reset on a shape puts back the look a new shape gets, not a bare
     box: cleared to no outline, an empty unfilled shape would vanish."""
     if not obj.manual_shape:
         return
-    for name, value in SHAPE_DEFAULTS.items():
+    for name, value in (LINE_DEFAULTS if _is_line(obj) else SHAPE_DEFAULTS).items():
         setattr(obj, name, value)
+
+
+def _is_line(obj) -> bool:
+    """A line or a curve she drew (reconstruct/shapes.LINES)."""
+    from ..reconstruct.shapes import is_line
+
+    return is_line(obj.manual_shape)
+
+
+def _no_words_on_a_line(obj: TextObject) -> None:
+    if _is_line(obj):
+        raise EditError("A line has no words.")
+
+
+def _line_band(box: Rect) -> Rect:
+    """A line's band: its length kept, LINE_BAND high about its centre, so
+    a group resize or a stretched paste never makes it a fat box."""
+    from ..reconstruct.shapes import LINE_BAND
+
+    cy = (box.y0 + box.y1) / 2.0
+    return Rect(x0=box.x0, y0=cy - LINE_BAND / 2.0, x1=box.x1, y1=cy + LINE_BAND / 2.0)
 
 
 def _clear_text_styles(obj: TextObject) -> None:
@@ -457,6 +495,9 @@ def apply_layout(
     indent: int | None = None,
     list_levels: list[int] | None = None,
     shape: str | None = None,
+    shape_adjust: list[float] | None = None,
+    line_start: str | None = None,
+    line_end: str | None = None,
     store: ObjectStore,
     target_lang: str,
 ) -> EditResult:
@@ -483,6 +524,13 @@ def apply_layout(
     # before history, so the refusal leaves no undo step.
     listed = _list_styles(list, list_style, list_start, indent, list_levels, obj)
     shaped = _shape_change(obj, shape) if shape is not None else None
+    lined = _line_styles(
+        obj, shaped or obj.manual_shape, shape_adjust, line_start, line_end,
+        changed=shaped is not None and shaped != obj.manual_shape,
+    )
+    line = is_line_name(shaped or obj.manual_shape)
+    if line and boxed.get("manual_border_color", "") is None:
+        raise EditError("A line needs a colour.")
     push_history(page)
 
     if bbox is not None:
@@ -495,7 +543,9 @@ def apply_layout(
             )
         except (KeyError, TypeError, ValueError) as exc:
             raise EditError("That position could not be read.") from exc
-        if box.width < MIN_BOX_POINTS or box.height < MIN_BOX_POINTS:
+        if line:
+            box = _line_band(box)
+        if box.width < MIN_BOX_POINTS or box.height < MIN_BOX_POINTS - 1e-6:
             raise EditError("That box is too small to hold any text.")
         if angle is not None:
             # The box comes with its angle: a turned box is its frame.
@@ -540,7 +590,8 @@ def apply_layout(
     if font_family is not None:
         obj.manual_font_family = _font_family(font_family)
     if fill is not None:
-        obj.manual_fill = _fill(fill)
+        # A line has no inside to fill.
+        obj.manual_fill = None if line else _fill(fill)
     if rotation is not None:
         was_frame = obj.manual_angle is not None
         obj.manual_rotation = _rotation(obj, rotation)
@@ -562,6 +613,8 @@ def apply_layout(
         setattr(obj, field, value)
     if shaped is not None:
         obj.manual_shape = shaped
+    for field, value in lined.items():
+        setattr(obj, field, value)
 
     obj.manually_edited = True
     if obj.translation_status is TranslationStatus.TRANSLATED:
@@ -736,26 +789,88 @@ def _border_dash(value: str) -> str | None:
     raise EditError("That border style is not available.")
 
 
-def _shape(value) -> str:
-    """A closed shape the engine draws (reconstruct/shapes.SHAPES)."""
-    from ..reconstruct.shapes import SHAPES
+def is_line_name(shape: str | None) -> bool:
+    from ..reconstruct.shapes import is_line
 
-    if value == "line":
+    return is_line(shape)
+
+
+def _shape(value, *, lines: bool = False) -> str:
+    """A closed shape the engine draws (reconstruct/shapes.SHAPES), or with
+    `lines`, a line or a curve too (shapes.LINES) -- only a new box can be
+    made a line."""
+    from ..reconstruct.shapes import LINES, SHAPES
+
+    if value in LINES and not lines:
         raise EditError("A line cannot become a shape.")
-    if not isinstance(value, str) or value not in SHAPES:
+    if not isinstance(value, str) or (value not in SHAPES and value not in LINES):
         raise EditError("That shape is not available.")
     return value
 
 
 def _shape_change(obj: TextObject, value) -> str:
     """Her choice of shape for a box, checked: only a box she made can be a
-    shape, and a shape can change to another shape ("Change shape")."""
-    shape = _shape(value)
+    shape, and a shape can change to another shape ("Change shape"). A line
+    stays a line: it can be straightened or curved, never closed."""
+    shape = _shape(value, lines=_is_line(obj))
     if not obj.is_manual_block:
         raise EditError("Only a box you made can be a shape.")
-    if obj.manual_shape == "line":
+    if _is_line(obj) != is_line_name(shape):
         raise EditError("A line cannot become a shape.")
     return shape
+
+
+def _line_end(value) -> str | None:
+    """One of a line's ends (shapes.LINE_ENDS), or None for "none"."""
+    from ..reconstruct.shapes import LINE_ENDS
+
+    if value == "none":
+        return None
+    if value not in LINE_ENDS:
+        raise EditError("That line end is not available.")
+    return value
+
+
+def _shape_adjust(shape: str | None, values) -> list[float] | None:
+    """A shape's adjust values, checked against what it has: a curve has
+    one, its bend, at most half its length either way (in 100000ths). The
+    other shapes have none to set yet; [] puts back the defaults."""
+    from ..reconstruct.shapes import MAX_BEND
+
+    if values is None or (isinstance(values, list) and not values):
+        return None
+    if shape != "curve":
+        raise EditError("That shape has nothing to adjust.")
+    try:
+        numbers = [float(v) for v in values]
+    except (TypeError, ValueError) as exc:
+        raise EditError("That adjustment could not be read.") from exc
+    if len(numbers) != 1 or not all(math.isfinite(v) for v in numbers):
+        raise EditError("That adjustment could not be read.")
+    if abs(numbers[0]) > MAX_BEND + 1e-6:
+        raise EditError("That curve is bent too far.")
+    return [round(numbers[0], 1)]
+
+
+def _line_styles(
+    obj, shape: str | None, adjust, start, end, *, changed: bool = False
+) -> dict:
+    """The line fields these choices set, each checked; only the ones
+    given. Ends belong to a line, a bend to a curve. A line that changes
+    kind (straight to curve) takes the new kind's own bend."""
+    out: dict = {}
+    line = is_line_name(shape)
+    if (start is not None or end is not None) and not line:
+        raise EditError("Only a line has ends.")
+    if start is not None:
+        out["manual_line_start"] = _line_end(start)
+    if end is not None:
+        out["manual_line_end"] = _line_end(end)
+    if adjust is not None:
+        out["manual_shape_adjust"] = _shape_adjust(shape, adjust)
+    elif changed:
+        out["manual_shape_adjust"] = None
+    return out
 
 
 def _padding(value: float) -> float | None:
@@ -973,6 +1088,9 @@ _EDITABLE_FIELDS = (
     "manual_border_width",
     "manual_border_dash",
     "manual_shape",
+    "manual_shape_adjust",
+    "manual_line_start",
+    "manual_line_end",
     "manual_list",
     "manual_list_style",
     "manual_list_start",
@@ -1179,7 +1297,12 @@ def _spec_object(
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise EditError("That position could not be read.") from exc
-    if box.width < MIN_BOX_POINTS or box.height < MIN_BOX_POINTS:
+    shape = _shape(spec["shape"], lines=True) if spec.get("shape") is not None else None
+    line = is_line_name(shape)
+    if line:
+        # A line is its band, whatever height came with it.
+        box = _line_band(box)
+    if box.width < MIN_BOX_POINTS or box.height < MIN_BOX_POINTS - 1e-6:
         raise EditError("That box is too small to hold any text.")
     turn = _angle(spec.get("angle") or 0.0)
 
@@ -1207,7 +1330,8 @@ def _spec_object(
     if look not in ("sans", "serif", "mono"):
         raise EditError("That font style is not available.")
     family = _font_family(spec.get("font_family") or "auto")
-    fill = _fill(spec.get("fill") or "none")
+    # A line has no inside to fill.
+    fill = None if line else _fill(spec.get("fill") or "none")
     styles = _text_styles(
         spec.get("vertical_align") or "top",
         spec.get("line_spacing") or 0,
@@ -1220,7 +1344,17 @@ def _spec_object(
         spec.get("border_dash") or "solid",
         spec.get("padding") or 0,
     )
-    shape = _shape(spec["shape"]) if spec.get("shape") is not None else None
+    if line:
+        if translated:
+            raise EditError("A line has no words.")
+        # A line always shows: black unless she chose a colour.
+        boxed.setdefault("manual_border_color", "#000000")
+        if boxed["manual_border_color"] is None:
+            boxed["manual_border_color"] = "#000000"
+    lined = _line_styles(
+        None, shape, spec.get("shape_adjust"), spec.get("line_start") or "none",
+        spec.get("line_end") or "none",
+    ) if line else _line_styles(None, shape, spec.get("shape_adjust"), None, None)
     if len(translated) > MAX_EDIT_LENGTH:
         raise EditError("That text is too long.")
     # A box with a background or a border and no words is a cover: it
@@ -1298,6 +1432,8 @@ def _spec_object(
         setattr(obj, name, value)
     _set_box_styles(obj, boxed)
     for name, value in listed.items():
+        setattr(obj, name, value)
+    for name, value in lined.items():
         setattr(obj, name, value)
     return obj
 
@@ -1551,6 +1687,8 @@ def apply_bulk(
     list_start: int | None = None,
     indent: int | None = None,
     shape: str | None = None,
+    line_start: str | None = None,
+    line_end: str | None = None,
     store: ObjectStore,
     target_lang: str,
 ) -> EditResult:
@@ -1581,6 +1719,11 @@ def apply_bulk(
     boxed = _box_styles(border_color, border_width, border_dash, padding)
     turn = _angle(angle) if angle is not None else None
     shape_value = _shape(shape) if shape is not None else None
+    ends = {}
+    if line_start is not None:
+        ends["manual_line_start"] = _line_end(line_start)
+    if line_end is not None:
+        ends["manual_line_end"] = _line_end(line_end)
     # Each box's list, read before history: a box whose own numbers a
     # list would show twice keeps them and is reported, and the others
     # still get the list. If every box would be refused, nothing changes.
@@ -1610,7 +1753,7 @@ def apply_bulk(
         # can no longer reach a block a single edit would have refused.
         if obj is None or not is_editable(obj) or obj.id in refusals:
             continue
-        if shape_value is not None and (not obj.is_manual_block or obj.manual_shape == "line"):
+        if shape_value is not None and (not obj.is_manual_block or _is_line(obj)):
             # Only a box she made takes a shape, and never a line; the rest
             # of the selection still changes.
             continue
@@ -1632,13 +1775,23 @@ def apply_bulk(
             obj.manual_italic = italic
         if font_family is not None:
             obj.manual_font_family = family
-        if fill is not None:
+        line = _is_line(obj)
+        if fill is not None and not line:
+            # A line has no inside to fill.
             obj.manual_fill = fill_value
         if (font_size is not None or fit) and angle is None:
             _keep_frame(obj, page, boxed)
         for field, value in styles.items():
             setattr(obj, field, value)
-        _set_box_styles(obj, boxed)
+        # A line keeps its colour when the others lose their border, and
+        # takes ends that only a line has.
+        _set_box_styles(obj, {
+            k: v for k, v in boxed.items()
+            if not (line and k == "manual_border_color" and v is None)
+        })
+        if line:
+            for field, value in ends.items():
+                setattr(obj, field, value)
         if angle is not None:
             # Each box turns about its own centre.
             _turn(obj, turn, pinned=False)
@@ -1710,7 +1863,9 @@ def apply_positions(
             box = Rect(x0=float(b["x0"]), y0=float(b["y0"]), x1=float(b["x1"]), y1=float(b["y1"]))
         except (KeyError, TypeError, ValueError) as exc:
             raise EditError("That position could not be read.") from exc
-        if box.width < MIN_BOX_POINTS or box.height < MIN_BOX_POINTS:
+        if _is_line(obj):
+            box = _line_band(box)
+        if box.width < MIN_BOX_POINTS or box.height < MIN_BOX_POINTS - 1e-6:
             raise EditError("That box is too small to hold any text.")
         parsed.append((obj, box))
     if not parsed:
@@ -1792,6 +1947,7 @@ def translate_from_english(
     if page is None:
         raise EditError("That page could not be found.")
     obj = _editable_object(page, object_id)
+    _no_words_on_a_line(obj)
     cleaned = (text or "").strip()
     # A shape may have its words taken out: it keeps its outline.
     if (not cleaned and not obj.manual_shape) or len(cleaned) > MAX_EDIT_LENGTH:

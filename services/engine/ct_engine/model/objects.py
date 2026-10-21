@@ -256,6 +256,11 @@ class DrawnLayout(BaseModel):
     # drawn in, in page points. None draws the frame as it always was.
     shape: str | None = None
     frame: Rect | None = None
+    # The shape's adjust values (a curve's bend) and a line's ends, as on
+    # TextObject: None for defaults and plain ends.
+    shape_adjust: list[float] | None = None
+    line_start: str | None = None
+    line_end: str | None = None
     # True when a turned picture label was centred along its frame rather
     # than drawn with its own alignment, so the editor centres it too.
     centred: bool = False
@@ -451,6 +456,18 @@ class TextObject(BaseObject):
     # a rollback to a build without this field a shape is a box with her
     # words, fill and outline. Reset keeps it.
     manual_shape: str | None = None
+    # The shape's adjust values in its own units (100000ths); None is its
+    # defaults. A curve ("curve") has one: how far its middle sits off the
+    # straight line, as a share of its length, positive to the band's top.
+    manual_shape_adjust: list[float] | None = None
+    # A line ("line" or "curve") is a band as long as the line, LINE_BAND
+    # high, turned by manual_angle (which carries its direction: right to
+    # left is 180). Its ends, start and end: "arrow", "open_arrow",
+    # "circle", "open_circle", "square", "open_square", "diamond",
+    # "open_diamond"; None is a plain end. Plain str for the same reason as
+    # manual_shape. Its colour, weight and dash are the border fields.
+    manual_line_start: str | None = None
+    manual_line_end: str | None = None
     # --- Lists (Google Slides' bulleted and numbered lists, indents) ----
     # See reconstruct/lists.py. "bullet" or "number"; None is no list.
     manual_list: Literal["bullet", "number"] | None = None
@@ -494,6 +511,9 @@ class TextObject(BaseObject):
                 self.manual_border_width,
                 self.manual_border_dash,
                 self.manual_shape,
+                self.manual_shape_adjust,
+                self.manual_line_start,
+                self.manual_line_end,
                 self.manual_list,
                 self.manual_list_style,
                 self.manual_list_start,

@@ -1,0 +1,301 @@
+{
+  "generatedBy": "apps/web/scripts/build-engine.mjs",
+  "hash": "3c60062ce00b",
+  "pyodide": {
+    "version": "0.29.3",
+    "indexURL": "https://cdn.jsdelivr.net/pyodide/v0.29.3/full/",
+    "core": {
+      "pyodide.mjs": "23213d27e9dacbda6f25f955fb38dabfc40ada082c04ee253047ea5dddcaa3b5",
+      "pyodide.asm.js": "1263f02b5b26099b96112378156f242dd98b39a8201ba7765e5fe3d455c5ce91",
+      "pyodide.asm.wasm": "e2f4ee75b325e35eb31bfb8c613d4dd5098f5502c156a97847686875b5025480",
+      "python_stdlib.zip": "4298b6ee445cb724c3973437da47789752b9e6ff4e26619026b283ec801fc46b",
+      "pyodide-lock.json": "3256ffc76388de0e37f4b34d42ab484268d1afc675179ff97b2a5bb14f84ccac"
+    },
+    "packages": [
+      "pymupdf",
+      "lxml",
+      "numpy",
+      "pillow",
+      "pydantic",
+      "fastapi",
+      "httpx",
+      "packaging",
+      "six",
+      "typing-extensions",
+      "typing-inspection"
+    ],
+    "bytes": 38943415
+  },
+  "env": {
+    "CT_PAGE_CONCURRENCY": "1",
+    "CT_MAX_JOB_CONCURRENCY": "1",
+    "CT_STORAGE_ROOT": "/ct",
+    "CT_OCR_PROVIDER": "browser",
+    "CT_TRANSLATION_PROVIDER": "deepl,google",
+    "CT_LOG_LEVEL": "WARNING",
+    "CT_ENVIRONMENT": "production"
+  },
+  "enginePins": {
+    "fastapi": "0.115.6",
+    "uvicorn": "0.34.0",
+    "python-multipart": "0.0.20",
+    "pydantic": "2.10.4",
+    "pydantic-settings": "2.7.0",
+    "PyMuPDF": "1.25.1",
+    "pypdf": "5.1.0",
+    "pdfplumber": "0.11.4",
+    "python-docx": "1.1.2",
+    "python-pptx": "1.0.2",
+    "lxml": "6.1.3",
+    "Pillow": "11.0.0",
+    "numpy": "2.2.1",
+    "pytesseract": "0.3.13",
+    "langdetect": "1.0.9",
+    "pytest": "8.3.4",
+    "httpx": "0.28.1",
+    "reportlab": "4.2.5"
+  },
+  "wheels": [
+    "wheels/python_dotenv-1.2.3-py3-none-any.whl",
+    "wheels/pydantic_settings-2.7.0-py3-none-any.whl",
+    "wheels/python_multipart-0.0.20-py3-none-any.whl",
+    "wheels/pypdf-5.1.0-py3-none-any.whl",
+    "wheels/python_docx-1.1.2-py3-none-any.whl",
+    "wheels/xlsxwriter-3.2.9-py3-none-any.whl",
+    "wheels/python_pptx-1.0.2-py3-none-any.whl",
+    "wheels/arabic_reshaper-3.0.1-py3-none-any.whl",
+    "wheels/python_bidi-0.4.2-py2.py3-none-any.whl",
+    "wheels/pytesseract-0.3.13-py3-none-any.whl",
+    "wheels/langdetect-1.0.9-py3-none-any.whl"
+  ],
+  "fonts": [
+    {
+      "url": "/fonts/v1/andika/Andika-Bold.ttf",
+      "dest": "andika/Andika-Bold.ttf",
+      "bytes": 681008,
+      "sha256": "4361126189a2d0e0da66999352db58aaf1b4ca940faf8a8239d725f8303d890d"
+    },
+    {
+      "url": "/fonts/v1/andika/Andika-BoldItalic.ttf",
+      "dest": "andika/Andika-BoldItalic.ttf",
+      "bytes": 709628,
+      "sha256": "2d000f8791a1827c0c4d411e9f4593c4fc2db0fdbb868bb1f863593b3d3968e6"
+    },
+    {
+      "url": "/fonts/v1/andika/Andika-Italic.ttf",
+      "dest": "andika/Andika-Italic.ttf",
+      "bytes": 700596,
+      "sha256": "6a4a0dd26d28f577b51dd6afb5acf6fd91ab21694e25649c270a32179bb52a62"
+    },
+    {
+      "url": "/fonts/v1/andika/Andika-Regular.ttf",
+      "dest": "andika/Andika-Regular.ttf",
+      "bytes": 669828,
+      "sha256": "202b96b1f174a4a43baefe885b40dacacb81786755efd08ed4b7704e79c45515"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-Bold.ttf",
+      "dest": "comic-neue/ComicNeue-Bold.ttf",
+      "bytes": 55716,
+      "sha256": "3e7e5fccfd7e0788f317b43312151c1bd5cf058c9697a8d83eac3939050bd61e"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-BoldItalic.ttf",
+      "dest": "comic-neue/ComicNeue-BoldItalic.ttf",
+      "bytes": 55928,
+      "sha256": "5c312c2a2fa64eee82f3b87fcfab8f3b12a5e59b043124401d322eb323cfbf16"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-Italic.ttf",
+      "dest": "comic-neue/ComicNeue-Italic.ttf",
+      "bytes": 54392,
+      "sha256": "e06bfd1552f5c9464c5665733ffd69239b0593885dbb9e059688a5900f78cf98"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-Regular.ttf",
+      "dest": "comic-neue/ComicNeue-Regular.ttf",
+      "bytes": 57248,
+      "sha256": "a0ee5a37c8b27c4db0700137d928598b1e23b0089e1546a8961909176b779360"
+    },
+    {
+      "url": "/fonts/v1/lexend/Lexend-Bold.ttf",
+      "dest": "lexend/Lexend-Bold.ttf",
+      "bytes": 105564,
+      "sha256": "4509838acc21f2c066e9874c9c5eb52b9b8cdac1771a9c1fe9e7e2cda41ce082"
+    },
+    {
+      "url": "/fonts/v1/lexend/Lexend-Regular.ttf",
+      "dest": "lexend/Lexend-Regular.ttf",
+      "bytes": 100264,
+      "sha256": "e2082c28389e9871d5d77ae9163d5c0c1c259fe39bdac91f73d56a600b61f60f"
+    },
+    {
+      "url": "/fonts/v1/marks/NotoSansSymbols2-Regular.ttf",
+      "dest": "marks/NotoSansSymbols2-Regular.ttf",
+      "bytes": 671568,
+      "sha256": "c4a0a80f0041ce4be81e2478faad22776d23edb98ae3f0d19bd37044820ecf9d"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-Bold.ttf",
+      "dest": "noto-sans/NotoSans-Bold.ttf",
+      "bytes": 432376,
+      "sha256": "87cb2d84472a7d66da659ee47b6cdb9552326e8c128245231f191b6ac72529d9"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-BoldItalic.ttf",
+      "dest": "noto-sans/NotoSans-BoldItalic.ttf",
+      "bytes": 441936,
+      "sha256": "3d367743f371f28671d2764e911a53d7c20ec9b6aa8791d059e7090389fc52a5"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-Italic.ttf",
+      "dest": "noto-sans/NotoSans-Italic.ttf",
+      "bytes": 446880,
+      "sha256": "678288f868807d4d64a6f3b51466871d117d915780381ce9d0ed4b3bcbd06d37"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-Regular.ttf",
+      "dest": "noto-sans/NotoSans-Regular.ttf",
+      "bytes": 431364,
+      "sha256": "f3961a9cde016d41a4879aecda1474d3a36d6bf54fa0e4643de029cc2248b0e8"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-Bold.ttf",
+      "dest": "noto-serif/NotoSerif-Bold.ttf",
+      "bytes": 481892,
+      "sha256": "24ad531e6b05ddad8c3d89572d2c93eb86a6b74e652ce7ee3c3e171de68e84c3"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-BoldItalic.ttf",
+      "dest": "noto-serif/NotoSerif-BoldItalic.ttf",
+      "bytes": 513280,
+      "sha256": "1bc4f86502eaa368718f6192bee022ea9a703d5af1c18b7d291212657b63074a"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-Italic.ttf",
+      "dest": "noto-serif/NotoSerif-Italic.ttf",
+      "bytes": 513428,
+      "sha256": "c4b3c971741ecdb40f5a443bce754e8fe91efe761b6ea10c92be7c3597cdadc4"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-Regular.ttf",
+      "dest": "noto-serif/NotoSerif-Regular.ttf",
+      "bytes": 482540,
+      "sha256": "a15cfbbc1539d707115111d672d590a3d70d4f74b4c0a315956da20ae19a14e1"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-Bold.ttf",
+      "dest": "open-sans/OpenSans-Bold.ttf",
+      "bytes": 147264,
+      "sha256": "27da758f4dcac9a65abe914c13b463b42982b9909bc65713424099f4810bd1e6"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-BoldItalic.ttf",
+      "dest": "open-sans/OpenSans-BoldItalic.ttf",
+      "bytes": 153308,
+      "sha256": "d672a770037104b6af45e1336b3d3c1729c8aea940f81e010f5a8a7319c29a21"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-Italic.ttf",
+      "dest": "open-sans/OpenSans-Italic.ttf",
+      "bytes": 153256,
+      "sha256": "93bc1bb6abf4e6b7c75d7131714061d5b57cc478abcabe4cb3519bb38fb917aa"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-Regular.ttf",
+      "dest": "open-sans/OpenSans-Regular.ttf",
+      "bytes": 147528,
+      "sha256": "c53aceea2dcf5b4098099c0c4d0a061d17e178a049317b42a422b1a9f7f8eb59"
+    }
+  ],
+  "tess": {
+    "variants": {
+      "relaxedsimd-lstm": "tess/tesseract-core-relaxedsimd-lstm",
+      "simd-lstm": "tess/tesseract-core-simd-lstm"
+    },
+    "langs": {
+      "eng": "tess/eng.traineddata"
+    },
+    "coreBytes": 2951626
+  },
+  "bootBytes": 49898647,
+  "readerBytes": 7064714,
+  "files": {
+    "engine.zip": {
+      "bytes": 421623,
+      "sha256": "92ce585a406d3c98fd1ee59f219c06a8f1416844c70070b92167f54329f25e77"
+    },
+    "engine.worker.js": {
+      "bytes": 27922,
+      "sha256": "7d0df9a0949029df975f2eaab0597f097ee39f922c0ff7ad1b0ef0ea1c6e785f"
+    },
+    "tesseract-sync.js": {
+      "bytes": 5199,
+      "sha256": "7e709050424aca53812c002b76d7c41983f1c3f22d21262a5cb883b1f2c93994"
+    },
+    "wheels/python_dotenv-1.2.3-py3-none-any.whl": {
+      "bytes": 22780,
+      "sha256": "904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9"
+    },
+    "wheels/pydantic_settings-2.7.0-py3-none-any.whl": {
+      "bytes": 29549,
+      "sha256": "e00c05d5fa6cbbb227c84bd7487c5c1065084119b750df7c8c1a554aed236eb5"
+    },
+    "wheels/python_multipart-0.0.20-py3-none-any.whl": {
+      "bytes": 24546,
+      "sha256": "8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104"
+    },
+    "wheels/pypdf-5.1.0-py3-none-any.whl": {
+      "bytes": 297976,
+      "sha256": "3bd4f503f4ebc58bae40d81e81a9176c400cbbac2ba2d877367595fb524dfdfc"
+    },
+    "wheels/python_docx-1.1.2-py3-none-any.whl": {
+      "bytes": 244315,
+      "sha256": "08c20d6058916fb19853fcf080f7f42b6270d89eac9fa5f8c15f691c0017fabe"
+    },
+    "wheels/xlsxwriter-3.2.9-py3-none-any.whl": {
+      "bytes": 175315,
+      "sha256": "9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3"
+    },
+    "wheels/python_pptx-1.0.2-py3-none-any.whl": {
+      "bytes": 472788,
+      "sha256": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba"
+    },
+    "wheels/arabic_reshaper-3.0.1-py3-none-any.whl": {
+      "bytes": 20699,
+      "sha256": "41c5adc2420f85758eada7e880251c4b6a2adbd83377bd27e5d4eba71f648bc7"
+    },
+    "wheels/python_bidi-0.4.2-py2.py3-none-any.whl": {
+      "bytes": 30812,
+      "sha256": "50eef6f6a0bbdd685f9e8c207f3c9050f5b578d0a46e37c76a9c4baea2cc2e13"
+    },
+    "wheels/pytesseract-0.3.13-py3-none-any.whl": {
+      "bytes": 14705,
+      "sha256": "7a99c6c2ac598360693d83a416e36e0b33a67638bb9d77fdcac094a3589d4b34"
+    },
+    "wheels/langdetect-1.0.9-py3-none-any.whl": {
+      "bytes": 993332,
+      "sha256": "df33a36e4e6f940eb7966403d3346fc58ea981f1da60e6f19213bee08d06121d"
+    },
+    "tess/tesseract-core-relaxedsimd-lstm.js": {
+      "bytes": 89360,
+      "sha256": "a37ac78b707e8d5d3d2e532cc3c4e69b04d127ea44a608f1e7de17640402aa5c"
+    },
+    "tess/tesseract-core-relaxedsimd-lstm.wasm": {
+      "bytes": 2862266,
+      "sha256": "7985c92d4c64e7267d24cadffe1b2a1da6bf8aa55fdcaf953fe94fe122a24545"
+    },
+    "tess/tesseract-core-simd-lstm.js": {
+      "bytes": 89271,
+      "sha256": "e48e2f02ddae3716c8dd24bf41cd290d4efa96892d689cdc4013c2545d63f469"
+    },
+    "tess/tesseract-core-simd-lstm.wasm": {
+      "bytes": 2857601,
+      "sha256": "34e8d50cac216427d86bf397d610fdd9f49492539bbcdfbfccc4eda20c810bea"
+    },
+    "tess/eng.traineddata": {
+      "bytes": 4113088,
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    }
+  }
+}
