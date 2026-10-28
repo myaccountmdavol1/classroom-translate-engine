@@ -9,7 +9,9 @@
 //
 // Before a translation job that will read scanned pages or words in
 // pictures, the text reader (tesseract-sync.js) is loaded between entries,
-// so requests keep being answered while it downloads.
+// so requests keep being answered while it downloads. Likewise, before a
+// translation from English, the language's Mozilla model (mozilla-sync.js)
+// is loaded, so the text is translated on this computer.
 //
 // Every downloaded file is checked before use, from the network and from
 // Cache Storage alike: Pyodide's core files against pins in manifest.json,
@@ -39,7 +41,7 @@
 //                {type:"halt"}               finish the entry in progress, then
 //                                            run no more Python ("halted")
 //                {type:"unhalt"}             carry on after all
-// Messages out:  {type:"progress", phase:"engine"|"reader", loaded, total}
+// Messages out:  {type:"progress", phase:"engine"|"reader"|"model", loaded, total}
 //                {type:"ready", summary} | {type:"boot-failed", message}
 //                {type:"response", id, status, headers, body}
 //                {type:"dropped", id}
@@ -68,6 +70,13 @@
 // Copied as-is into public/engine/<hash>/ by scripts/build-engine.mjs.
 
 import { createTextReader } from "./tesseract-sync.js";
+import { createLocalTranslator } from "./mozilla-sync.js";
+
+// Translation models are the same from one engine build to the next, so
+// they keep their own cache rather than the build's (which a new build
+// clears). Each file's address carries its sha256, so a model Mozilla
+// updates is a new file, never a changed one.
+const MODEL_CACHE = "ct-mt-models";
 
 const OWN_BASE = new URL("./", self.location.href).href;
 const RESPONSE_TIMEOUT_MS = 240000; // no answer at all for this long: give up
@@ -80,6 +89,7 @@ let pyodideBase = null;
 let pyodideCache = null;
 let ownCache = null;
 let lockSha = null; // Pyodide package file name -> sha256, from its pinned lock
+let modelSha = null; // translation model file address -> sha256, from manifest.mt
 
 // ---- Download progress ----------------------------------------------------------
 const progress = { phase: "engine", loaded: 0, total: 0, lastPost: 0 };
@@ -109,6 +119,7 @@ function bucketFor(abs) {
   if (abs.startsWith(pyodideBase)) return pyodideCache;
   if (abs.startsWith(OWN_BASE)) return ownCache;
   if (abs.startsWith(self.location.origin + "/fonts/v1/")) return ownCache;
+  if (modelSha && modelSha[abs]) return MODEL_CACHE;
   return null;
 }
 
@@ -121,6 +132,7 @@ function expectedSha(abs) {
   if (abs.startsWith(OWN_BASE)) {
     return manifest.files[abs.slice(OWN_BASE.length).split("?")[0]]?.sha256 || null;
   }
+  if (modelSha && modelSha[abs]) return modelSha[abs];
   const font = manifest.fonts.find((f) => abs === self.location.origin + f.url);
   return font ? font.sha256 : null;
 }
@@ -226,6 +238,22 @@ async function asset(rel) {
   return new Uint8Array(await resp.arrayBuffer());
 }
 
+// A translation model file's address: manifest.mt.base (this site, or the
+// free host the models live on) and its path there.
+function modelUrl(f) {
+  return new URL(f.path, new URL(manifest.mt.base, self.location.origin)).href;
+}
+
+// A model file, checked and cached as it was downloaded (gzip), then
+// unpacked for the runtime.
+async function modelFile(f) {
+  const resp = await cachedFetch(modelUrl(f));
+  if (!resp.ok) throw new Error(`could not load ${f.path} (${resp.status})`);
+  if (!f.gzip) return new Uint8Array(await resp.arrayBuffer());
+  const unpacked = new Blob([await resp.arrayBuffer()]).stream().pipeThrough(new DecompressionStream("gzip"));
+  return new Uint8Array(await new Response(unpacked).arrayBuffer());
+}
+
 // Pyodide's JS files are loaded with import(), which would skip the checks
 // and Cache Storage: they are fetched (checked, cached) and imported from a Blob.
 async function importChecked(name) {
@@ -238,6 +266,9 @@ async function importChecked(name) {
 let py = null;
 let glue = null;
 const reader = { tess: null, failed: new Set() };
+// Mozilla's translator (mozilla-sync.js), and the jobs whose model could
+// not be loaded (they run anyway: the chain's next engine translates).
+const translator = { moz: null, failed: new Set() };
 
 async function boot(origin) {
   const t0 = performance.now();
@@ -245,6 +276,12 @@ async function boot(origin) {
   pyodideBase = manifest.pyodide.indexURL;
   pyodideCache = `ct-pyodide-${manifest.pyodide.version}`;
   ownCache = `ct-engine-${manifest.hash}`;
+  modelSha = {};
+  if (manifest.mt) {
+    for (const entry of Object.values(manifest.mt.models)) {
+      for (const f of entry.files) modelSha[modelUrl(f)] = f.sha256;
+    }
+  }
   // Builds other than this one and the one before it are no longer served.
   try {
     for (const k of await caches.keys()) {
@@ -406,7 +443,12 @@ function memfsBytes(path = storeRoot) {
 function memory() {
   let heap = 0;
   try { heap = py._module.HEAP8.length; } catch { /* not exposed */ }
-  return { heap, tess: reader.tess ? reader.tess.heapBytes() : 0, memfs: memfsBytes() };
+  return {
+    heap,
+    tess: reader.tess ? reader.tess.heapBytes() : 0,
+    mt: translator.moz ? translator.moz.heapBytes() : 0,
+    memfs: memfsBytes(),
+  };
 }
 
 // ---- Stop, asked from inside a running job ------------------------------------------
@@ -543,10 +585,76 @@ async function prepareReader(lang) {
   post({ type: "progress", phase: "reader", loaded: progress.total, total: progress.total });
 }
 
+// ---- Chrome's built-in translator, through the host -------------------------------------
+// The Translator API exists only on a page (src/engine/chrome-mt.ts). Before
+// a job the host is asked whether Chrome has the language ready; during it,
+// Python (ct_browser/local_mt.py, through js.ctChrome) sends each batch as
+// a synchronous request that the Service Worker hands to the host.
+const CHROME_MT_URL = "/engine/api/__mt/chrome";
+const CHROME_CHECK_TIMEOUT_MS = 10000;
+const chrome = { langs: [], asked: new Set(), waiting: new Map() };
+
+function askChromeReady(code) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { chrome.waiting.delete(code); resolve(false); }, CHROME_CHECK_TIMEOUT_MS);
+    chrome.waiting.set(code, (ok) => { clearTimeout(timer); resolve(Boolean(ok)); });
+    post({ type: "chrome-check", code });
+  });
+}
+
+self.ctChrome = {
+  get ready() { return chrome.langs.length > 0; },
+  get langs() { return chrome.langs; },
+  /** Fully synchronous: a list of strings in, their translations out.
+   * Throws when the host could not (the provider then marks the batch for
+   * the next engine). */
+  translate(texts, code) {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${self.location.origin}${CHROME_MT_URL}`, false);
+    xhr.setRequestHeader("content-type", "application/json");
+    xhr.send(JSON.stringify({ code: String(code), texts: Array.from(texts, String) }));
+    if (xhr.status !== 200) throw new Error(`Chrome's translator answered ${xhr.status}`);
+    const out = JSON.parse(xhr.responseText).texts;
+    if (!Array.isArray(out) || out.length !== texts.length) throw new Error("Chrome's translator answered the wrong number of texts");
+    return out;
+  },
+};
+
+async function prepareModel(code) {
+  if (!translator.moz) translator.moz = createLocalTranslator({ asset, modelFile, manifest });
+  self.ctMoz = translator.moz;
+  const entry = manifest.mt.models[code];
+  const runtime = translator.moz.mod ? 0 : manifest.mt.runtime.bytes;
+  startProgress("model", runtime + entry.bytes);
+  await translator.moz.ensure(code);
+  post({ type: "progress", phase: "model", loaded: progress.total, total: progress.total });
+}
+
 function runJob() {
   let info = null;
   try { info = JSON.parse(glue.next_job() || "null"); } catch (e) { info = null; if (isFatal(e)) { die(e); return; } }
   if (!info) { jobWaiting = false; return; }
+  // Chrome's own translator first, where this browser has the language
+  // ready: asked of the host once per job, between entries.
+  const chromeCode = info.chrome_code;
+  if (chromeCode && !chrome.asked.has(info.job_id)) {
+    chrome.asked.add(info.job_id);
+    preparing = askChromeReady(chromeCode)
+      .then((ok) => { chrome.langs = ok ? [chromeCode] : []; })
+      .finally(() => { preparing = null; pump(); });
+    return;
+  }
+  // Mozilla's model only where Chrome will not translate: no download for
+  // a teacher whose Chrome already can.
+  const model = chromeCode && chrome.langs.includes(chromeCode) ? null : info.mt_model;
+  if (model && manifest.mt && manifest.mt.models[model] && !(translator.moz && translator.moz.has(model)) && !translator.failed.has(info.job_id)) {
+    // Loaded between entries, like the text reader. If it cannot load, the
+    // job still runs, and the chain's next engine translates its text.
+    preparing = prepareModel(model)
+      .catch((e) => { translator.failed.add(info.job_id); post({ type: "model-failed", code: model, message: String(e && e.message || e).slice(0, 300) }); })
+      .finally(() => { preparing = null; pump(); });
+    return;
+  }
   const lang = info.ocr_language;
   if (lang && !(reader.tess && reader.tess.has(lang)) && !reader.failed.has(info.job_id)) {
     // Loaded between entries: requests are answered meanwhile. If it cannot
@@ -573,7 +681,7 @@ function runJob() {
   // Between jobs, never during one: a worker that ran out of memory, or has
   // grown past the limit (the wasm heap never shrinks), stops here and the
   // host starts a fresh one, which picks up any waiting job from the store.
-  const total = mem.heap + mem.tess + mem.memfs;
+  const total = mem.heap + mem.tess + mem.mt + mem.memfs;
   if (out.recycle || (recycleBytes > 0 && total > recycleBytes)) {
     halted = true;
     haltSaid = true;
@@ -626,6 +734,10 @@ self.onmessage = (ev) => {
     if (dead || halted) return; // the host has been told, and answers it
     requests.push(msg);
     pump();
+  } else if (msg.type === "chrome-status") {
+    const done = chrome.waiting.get(msg.code);
+    chrome.waiting.delete(msg.code);
+    done?.(msg.ok);
   } else if (msg.type === "limit") {
     recycleBytes = Number(msg.recycleBytes) || 0;
   } else if (msg.type === "halt") {

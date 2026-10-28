@@ -80,6 +80,7 @@ import {
   type DirLike,
   type JournalEntry,
 } from "./opfs-store";
+import { chromeReady, chromeTranslate } from "./chrome-mt";
 import {
   accessCode,
   fallBackToRemoteEngine,
@@ -290,6 +291,8 @@ const stats = {
   peakMemory: 0,
   journalProblems: 0,
   lastJournalProblem: null as string | null,
+  // The last translation model that could not be loaded, and why.
+  lastModelProblem: null as string | null,
   lastSweep: null as Json | null,
   persist: null as Json | null,
   becameHostAt: null as number | null,
@@ -1067,6 +1070,17 @@ function onWorkerMessage(msg: Json): void {
       }
       break;
     }
+    case "chrome-check": {
+      // Before a job: can Chrome translate this language here, now?
+      const w = worker;
+      const code = String(msg.code);
+      void chromeReady(code).then((ok) => w?.postMessage({ type: "chrome-status", code, ok }));
+      break;
+    }
+    case "model-failed":
+      // The job runs anyway; the chain's next engine translates its text.
+      stats.lastModelProblem = `${String(msg.code)}: ${String(msg.message)}`.slice(0, 300);
+      break;
     case "housekeeping-failed":
       stats.lastJournalProblem = `${String(msg.item)} ${String(msg.id ?? "")}: ${String(msg.message)}`.slice(0, 300);
       if (msg.item === "hydrate" && msg.id) hydrated.delete(String(msg.id));
@@ -1109,8 +1123,8 @@ function onWorkerMessage(msg: Json): void {
           stats.lastStopChecks = { ...(msg.stopChecks as Json), job: String(msg.jobId) };
         }
         if (msg.memory && typeof msg.memory === "object") {
-          const m = msg.memory as { heap?: number; tess?: number; memfs?: number };
-          const total = (m.heap ?? 0) + (m.tess ?? 0) + (m.memfs ?? 0);
+          const m = msg.memory as { heap?: number; tess?: number; mt?: number; memfs?: number };
+          const total = (m.heap ?? 0) + (m.tess ?? 0) + (m.mt ?? 0) + (m.memfs ?? 0);
           stats.lastMemory = { ...m, total, at: new Date().toISOString() };
           stats.peakMemory = Math.max(stats.peakMemory, total);
         }
@@ -1122,7 +1136,7 @@ function onWorkerMessage(msg: Json): void {
       }
       status.busy = runningJob !== null;
       status.jobDocument = runningJob?.documentId ?? null;
-      if (status.phase === "reader" && msg.state === "start") status.phase = "engine";
+      if ((status.phase === "reader" || status.phase === "model") && msg.state === "start") status.phase = "engine";
       publishStatus();
       break;
   }
@@ -1561,6 +1575,24 @@ function healthAnswer(): Promise<HostResponse> {
   );
 }
 
+// The engine's 'chrome' provider, from the running job (chrome-mt.ts says
+// why it comes here): {code, texts} -> {texts}, or 503 when Chrome cannot,
+// which the provider reads as "translate with the next engine".
+const CHROME_MT_PATH = "/api/__mt/chrome";
+
+async function chromeAnswer(req: HostRequest): Promise<HostResponse> {
+  try {
+    const body = JSON.parse(new TextDecoder().decode(req.body ?? new ArrayBuffer(0))) as { code?: unknown; texts?: unknown };
+    if (typeof body.code !== "string" || !Array.isArray(body.texts) || !body.texts.every((t) => typeof t === "string")) {
+      return json(400, { error: "bad request" });
+    }
+    return json(200, { texts: await chromeTranslate(body.code, body.texts as string[]) });
+  } catch (e) {
+    stats.lastModelProblem = `chrome: ${String((e as Error)?.message ?? e)}`.slice(0, 300);
+    return json(503, { error: "Chrome could not translate this" });
+  }
+}
+
 async function answer(req: HostRequest): Promise<HostResponse> {
   const path = req.path.split("?")[0];
   const method = req.method.toUpperCase();
@@ -1574,6 +1606,7 @@ async function answer(req: HostRequest): Promise<HostResponse> {
       body: encoder.encode(stopRequested.has(jobId) ? "1" : "0").buffer as ArrayBuffer,
     };
   }
+  if (method === "POST" && path === CHROME_MT_PATH) return chromeAnswer(req);
   if (method === "GET" && path === "/api/languages") {
     return (await refuseBadCode(req)) ?? json(200, ENGINE_LANGUAGES);
   }

@@ -15,8 +15,12 @@
 //     tess/*                tesseract.js-core 7.0.0 (relaxedsimd + simd) and
 //                           tessdata_fast eng, loaded only before a
 //                           translation that needs them
-//     engine.worker.js      the worker, and tesseract-sync.js, copied from
-//     tesseract-sync.js     src/engine (plain JS, not bundled by Next)
+//     moz/*                 the Bergamot runtime (@browsermt/bergamot-translator
+//                           0.4.9) for Mozilla's translation models, loaded
+//                           only before a translation that uses them
+//     engine.worker.js      the worker, tesseract-sync.js and mozilla-sync.js,
+//     tesseract-sync.js     copied from src/engine (plain JS, not bundled by
+//     mozilla-sync.js       Next)
 //     manifest.json         every file's size and sha256, Pyodide's pins and
 //                           the byte total of a first visit
 //   src/engine/manifest.generated.ts   the hash, and the answers the host
@@ -27,6 +31,9 @@
 // immutable and a new build never mixes with an old one. The last two are
 // kept, so a tab still running the previous build finishes its job.
 // Pyodide itself loads from jsDelivr (pinned by sha256 in the worker).
+// Mozilla's translation models load from CT_MT_MODELS_URL (required: where
+// the folder from scripts/build-mt-models.mjs was uploaded), each file
+// pinned by scripts/mt-models.lock.json.
 //
 // Usage (from apps/web):  node scripts/build-engine.mjs
 // Python used for pip:     $CT_ENGINE_PYTHON, else services/engine/.venv/bin/python
@@ -113,6 +120,14 @@ const TESS_CORE = {
   sha256: "ba584355515eaff877552022853c0e71f2cb70466e759d1d6940484929718ee0",
   variants: ["relaxedsimd-lstm", "simd-lstm"],
 };
+const BERGAMOT = {
+  url: "https://registry.npmjs.org/@browsermt/bergamot-translator/-/bergamot-translator-0.4.9.tgz",
+  // Matches npm's published integrity (sha512-bNuuCwM/...ea8Q==).
+  sha256: "9011be93222d839d7448ffdf00549d53ce8f541fd782ffc79779d1756397c41f",
+  files: ["bergamot-translator-worker.js", "bergamot-translator-worker.wasm"],
+};
+const MT_LOCK = join(HERE, "mt-models.lock.json");
+const MT_MODELS_URL = process.env.CT_MT_MODELS_URL || "";
 const TESSDATA = {
   eng: {
     url: "https://cdn.jsdelivr.net/gh/tesseract-ocr/tessdata_fast@4.1.0/eng.traineddata",
@@ -127,7 +142,11 @@ const ENGINE_ENV = {
   CT_MAX_JOB_CONCURRENCY: "1",
   CT_STORAGE_ROOT: "/ct",
   CT_OCR_PROVIDER: "browser",
-  CT_TRANSLATION_PROVIDER: "deepl,google",
+  // Chrome's own translator, then Mozilla's models, on this computer; the
+  // relay's free DeepL takes only what they could not translate
+  // (ct_browser/local_mt.py). Google is left out: its key is billed, and
+  // the site is open to everyone (src/lib/server/mtRelay.ts).
+  CT_TRANSLATION_PROVIDER: "chrome,mozilla,deepl",
   CT_LOG_LEVEL: "WARNING",
   // Production: errors carry the teacher's sentence, never a traceback.
   CT_ENVIRONMENT: "production",
@@ -223,6 +242,12 @@ try {
   console.log(`engine build\n  python: ${PY}\n  out:    ${OUT_ROOT}/<hash>\n  work:   ${work}`);
   mkdirSync(join(stage, "wheels"), { recursive: true });
   mkdirSync(join(stage, "tess"), { recursive: true });
+  mkdirSync(join(stage, "moz"), { recursive: true });
+  if (!MT_MODELS_URL) {
+    throw new Error("CT_MT_MODELS_URL is not set: where the translation models (scripts/build-mt-models.mjs) are served");
+  }
+  if (!existsSync(MT_LOCK)) throw new Error("scripts/mt-models.lock.json is missing: run scripts/build-mt-models.mjs");
+  const mtLock = JSON.parse(readFileSync(MT_LOCK, "utf8"));
 
   // 1. Pure wheels, no resolver: the closure is checked in step 3.
   const wdir = join(work, "wheels");
@@ -345,6 +370,15 @@ print(f"dependency closure: {len(src)} shipped wheels, every requirement met")
     writeFileSync(join(stage, "tess", `${lang}.traineddata`), buf);
   }
 
+  // 4b. The Bergamot runtime for Mozilla's translation models.
+  const btgz = await download(BERGAMOT.url);
+  check("bergamot-translator-0.4.9.tgz", btgz, BERGAMOT.sha256);
+  const mozDir = join(work, "bergamot");
+  mkdirSync(mozDir);
+  writeFileSync(join(mozDir, "runtime.tgz"), btgz);
+  execFileSync("tar", ["-xzf", join(mozDir, "runtime.tgz"), "-C", mozDir]);
+  for (const f of BERGAMOT.files) copyFileSync(join(mozDir, "package", "worker", f), join(stage, "moz", f));
+
   // 5. Fonts: the engine's faces must be byte-identical to /fonts/v1, which
   //    the worker fetches instead of shipping them twice.
   const facesDir = join(ENGINE_ROOT, "ct_engine", "fonts", "faces");
@@ -391,7 +425,7 @@ print(f"dependency closure: {len(src)} shipped wheels, every requirement met")
   console.log(`engine.zip: ${entries.length} files, ${mb(zip.length)}`);
 
   // 7. The worker and the text reader's bridge.
-  for (const f of ["engine.worker.js", "tesseract-sync.js"]) copyFileSync(join(SRC_ENGINE, f), join(stage, f));
+  for (const f of ["engine.worker.js", "tesseract-sync.js", "mozilla-sync.js"]) copyFileSync(join(SRC_ENGINE, f), join(stage, f));
 
   // 8. What the host answers without Python, from the engine's own code
   //    (the same lists and limits its routes return), with the browser's env.
@@ -422,15 +456,30 @@ print(json.dumps({"health": health, "languages": languages(), "output_modes": ou
     if (!f) throw new Error(`no wheel for ${stem}`);
     return "wheels/" + f;
   });
-  const payload = ["engine.zip", "engine.worker.js", "tesseract-sync.js", ...wheelFiles,
+  const payload = ["engine.zip", "engine.worker.js", "tesseract-sync.js", "mozilla-sync.js", ...wheelFiles,
     ...TESS_CORE.variants.flatMap((v) => [`tess/tesseract-core-${v}.js`, `tess/tesseract-core-${v}.wasm`]),
-    ...Object.keys(TESSDATA).map((l) => `tess/${l}.traineddata`)];
+    ...Object.keys(TESSDATA).map((l) => `tess/${l}.traineddata`),
+    ...BERGAMOT.files.map((f) => `moz/${f}`)];
   const filesMeta = {};
   for (const p of payload) {
     const buf = readFileSync(join(stage, p));
     filesMeta[p] = { bytes: buf.length, sha256: sha256(buf) };
   }
-  const hash = sha256(Buffer.from(JSON.stringify({ filesMeta, fonts, PYODIDE_CORE, ENGINE_ENV }))).slice(0, 12);
+  // What the worker needs of the models: where they are, and each file.
+  const mt = {
+    base: MT_MODELS_URL,
+    license: mtLock.license,
+    runtime: {
+      js: "moz/bergamot-translator-worker.js",
+      wasm: "moz/bergamot-translator-worker.wasm",
+      bytes: BERGAMOT.files.reduce((n, f) => n + filesMeta[`moz/${f}`].bytes, 0),
+    },
+    models: Object.fromEntries(Object.entries(mtLock.models).map(([code, m]) => [code, {
+      bytes: m.bytes,
+      files: m.files.map(({ kind, path, sha256: s, size, gzip }) => ({ kind, path, sha256: s, size, gzip })),
+    }])),
+  };
+  const hash = sha256(Buffer.from(JSON.stringify({ filesMeta, fonts, PYODIDE_CORE, ENGINE_ENV, mt }))).slice(0, 12);
   const sum = (ps) => ps.reduce((n, p) => n + filesMeta[p].bytes, 0);
   const engineBytes = sum(["engine.zip", ...wheelFiles]) + fonts.reduce((n, f) => n + f.bytes, 0);
   const tessVariantBytes = Math.max(...TESS_CORE.variants.map((v) => sum([`tess/tesseract-core-${v}.js`, `tess/tesseract-core-${v}.wasm`])));
@@ -454,6 +503,7 @@ print(json.dumps({"health": health, "languages": languages(), "output_modes": ou
     // text reader adds (core + English) the first time it is needed.
     bootBytes: pyodideBytes + engineBytes,
     readerBytes: tessVariantBytes + filesMeta["tess/eng.traineddata"].bytes,
+    mt,
     files: filesMeta,
   };
   writeFileSync(join(stage, "manifest.json"), JSON.stringify(manifest, null, 2) + "\n");

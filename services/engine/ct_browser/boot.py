@@ -160,6 +160,11 @@ class BrowserEngine:
 
         ocr.install()
         self._undo.append(ocr.uninstall)
+        # Mozilla's models, translating in this worker (local_mt.py).
+        from . import local_mt
+
+        local_mt.install()
+        self._undo.append(local_mt.uninstall)
         # Stop and "Start over" reach a running job (see cancel.py).
         from . import cancel
 
@@ -442,6 +447,12 @@ class BrowserEngine:
         translation of a document with scanned pages, or with pictures whose
         words are to be translated (OCR runs in the translation job, never
         in analysis).
+
+        `mt_model` is the Mozilla model (local_mt.py) a translation from
+        English needs, so the worker can load it before the job; None when
+        Mozilla has no model for the language (the chain's next engine
+        translates instead). `chrome_code` is the language Chrome's own
+        translator would use, which the worker asks the host about first.
         """
         args = self.pool.peek()
         if not args or len(args) < 2:
@@ -452,6 +463,8 @@ class BrowserEngine:
             "job_id": job_id,
             "translation": False,
             "ocr_language": None,
+            "mt_model": None,
+            "chrome_code": None,
         }
         try:
             job = self.manifests.load_job(document_id, job_id)
@@ -463,6 +476,12 @@ class BrowserEngine:
             manifest = self.manifests.load_manifest(document_id)
             if manifest is None:
                 return info
+            from . import local_mt
+
+            source = job.settings.source_language or manifest.analysis.detected_language
+            if local_mt.from_english(source):
+                info["mt_model"] = local_mt.mozilla_code(job.settings.target_language)
+                info["chrome_code"] = local_mt.chrome_code(job.settings.target_language)
             from ct_engine.pipeline.ocr_stage import pages_needing_ocr
             from ct_engine.providers.ocr.local_tesseract import LocalTesseractOCRProvider
 

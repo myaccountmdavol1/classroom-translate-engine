@@ -87,6 +87,22 @@ tesseract.js contributors, Apache-2.0 (https://github.com/naptha/tesseract.js).
 tesseract.js-core 7.0.0 ships no separate NOTICE file; its Apache-2.0
 `LICENSE` is the notice.
 
+### Translation on the computer: Mozilla's models
+
+Served with each build (`/engine/<hash>/moz/`), and from
+https://myaccountmdavol1.github.io/classroom-translate-models/ for the
+models themselves, each file pinned in `apps/web/scripts/mt-models.lock.json`.
+
+| Component | Version | Licence | Source |
+|---|---|---|---|
+| bergamot-translator (Marian compiled to WebAssembly) | @browsermt/bergamot-translator 0.4.9 | MPL-2.0 | https://github.com/browsermt/bergamot-translator , https://registry.npmjs.org/@browsermt/bergamot-translator/-/bergamot-translator-0.4.9.tgz |
+| Firefox Translations models (English to 15 languages) | as listed in `mt-models.lock.json` | MPL-2.0 | https://github.com/mozilla/translations , Mozilla's registry https://storage.googleapis.com/moz-fx-translations-data--303e-prod-translations-data/db/models.json |
+
+The calls into the runtime in `apps/web/src/engine/mozilla-sync.js` follow
+the package's `worker/translator-worker.js` (MPL-2.0). Chrome's built-in
+translator (`apps/web/src/engine/chrome-mt.ts`) is part of the browser and
+is not distributed here.
+
 ## Fonts (in this repository and in both builds)
 
 Bundled in `services/engine/ct_engine/fonts/faces/` (and served to the

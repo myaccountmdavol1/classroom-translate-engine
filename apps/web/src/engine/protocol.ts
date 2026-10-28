@@ -74,8 +74,9 @@ export type EngineState = "idle" | "booting" | "ready" | "failed";
 export interface EngineStatus {
   state: EngineState;
   /** "engine" while the translator downloads and starts, "reader" while the
-   * text reader loads before a translation that needs it. */
-  phase: "engine" | "reader";
+   * text reader loads before a translation that needs it, "model" while
+   * the language's translation model loads before a translation. */
+  phase: "engine" | "reader" | "model";
   loaded: number;
   total: number;
   /** A job is running: Python is busy until it ends. */
