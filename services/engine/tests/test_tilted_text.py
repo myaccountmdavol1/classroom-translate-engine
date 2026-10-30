@@ -513,14 +513,6 @@ from ct_engine.providers.ocr.base import OCRRegion, OCRWord
 LEVEL_LABELS = Path(__file__).parent / "fixtures" / "level_labels"
 
 
-# The level-label crops come from a real screenshot deck and are not part of
-# the public source; these three tests skip without them.
-needs_level_labels = pytest.mark.skipif(
-    not (LEVEL_LABELS / "labels.json").exists(),
-    reason="tests/fixtures/level_labels is not published",
-)
-
-
 def _level_label_pdfs():
     """Each real level label (a crop of a screenshot deck) on a white
     picture of its own, on a letter page: (pdf, picture rect, word box in
@@ -545,7 +537,6 @@ def _level_label_pdfs():
         yield out.tobytes(), rect, word, item["text"]
 
 
-@needs_level_labels
 def test_real_short_level_labels_are_not_measured_as_tilted():
     """12 of 182 level labels on a real deck measured 2.7-4.9 degrees with
     most letters agreeing on an edge, and were drawn turned. The slant must
@@ -561,7 +552,6 @@ def test_real_short_level_labels_are_not_measured_as_tilted():
     assert count >= 10
 
 
-@needs_level_labels
 def test_real_level_labels_cost_no_extra_reading_and_stay_level():
     """The per-page cost guard: a page with only level labels makes no
     single-line re-reads at all, and its labels are drawn level."""
@@ -580,7 +570,6 @@ def test_real_level_labels_cost_no_extra_reading_and_stay_level():
         assert all(t.oriented is None for t in labels), text
 
 
-@needs_level_labels
 def test_late_measurement_leaves_real_level_labels_alone():
     """A document read before slants were measured is measured on its next
     rebuild; its level labels must come back exactly as they were drawn."""

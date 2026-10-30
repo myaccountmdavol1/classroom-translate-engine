@@ -60,12 +60,6 @@ WEB_RELAY_TS = (
     Path(__file__).resolve().parents[3] / "apps" / "web" / "src" / "lib" / "server" / "mtRelay.ts"
 )
 
-# The website's relay is not part of the public engine source; the two
-# tests that compare against it skip without it.
-needs_web_relay = pytest.mark.skipif(
-    not WEB_RELAY_TS.exists(), reason="apps/web/src/lib/server/mtRelay.ts is not published"
-)
-
 
 @pytest.fixture(autouse=True)
 def _relay(monkeypatch):
@@ -191,7 +185,6 @@ def test_no_class_code_sends_no_header(monkeypatch):
     assert "x-ct-access" not in fake.requests[0].headers
 
 
-@needs_web_relay
 def test_the_provider_gives_up_before_the_relay_does():
     # mtRelay.ts aborts DeepL/Google at 55 s and answers 504. This side must
     # time out first, so a slow batch is abandoned (and never re-sent) here.
@@ -201,7 +194,6 @@ def test_the_provider_gives_up_before_the_relay_does():
     assert relay.RELAY_TIMEOUT.read < remote._TIMEOUT.read
 
 
-@needs_web_relay
 def test_character_caps_match_the_web_relay():
     ts = WEB_RELAY_TS.read_text()
 

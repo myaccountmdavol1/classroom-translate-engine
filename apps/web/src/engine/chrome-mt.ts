@@ -122,3 +122,77 @@ export async function chromeTranslate(code: string, texts: string[]): Promise<st
   for (const text of texts) out.push(text.trim() ? await t.translate(text) : text);
   return out;
 }
+
+/* --- Checking in English, from the editor page ---
+ * A teacher who cannot read the translation reads it back in English. That
+ * changes nothing, so it needs no engine: the page asks Chrome directly,
+ * the other way round (Spanish to English). Never the DeepL backup: that
+ * shared allowance is kept for translating worksheets. */
+
+export type EnglishCheckProblem = "no-chrome" | "no-language" | "failed";
+
+export class EnglishCheckError extends Error {
+  constructor(readonly problem: EnglishCheckProblem) {
+    super(problem);
+  }
+}
+
+const toEnglishMade = new Map<string, Promise<ChromeTranslator>>();
+
+/** Chrome's translator from `target` (our code, such as "es") into English.
+ * Call it from a click first: a language Chrome has not downloaded can
+ * only be fetched while the click still counts. Rejects with an
+ * EnglishCheckError. */
+export function englishTranslator(target: string): Promise<ChromeTranslator> {
+  const T = api();
+  if (!T) return Promise.reject(new EnglishCheckError("no-chrome"));
+  const code = CHROME_CODES[target];
+  if (!code) return Promise.reject(new EnglishCheckError("no-language"));
+  let t = toEnglishMade.get(code);
+  if (!t) {
+    const back = { sourceLanguage: code, targetLanguage: "en" };
+    t = T.availability(back)
+      .catch(() => "unavailable" as const)
+      .then((state) => {
+        if (state === "unavailable") throw new EnglishCheckError("no-language");
+        return T.create(back);
+      })
+      .catch((e) => {
+        throw e instanceof EnglishCheckError ? e : new EnglishCheckError("failed");
+      });
+    toEnglishMade.set(code, t);
+    // Asked again next time: the download may have needed a click.
+    t.catch(() => toEnglishMade.delete(code));
+  }
+  return t;
+}
+
+const englishSaid = new Map<string, string>();
+
+/** What `text`, in `target`, says in English. */
+export async function toEnglish(target: string, text: string): Promise<string> {
+  const key = `${target}\u0000${text}`;
+  const known = englishSaid.get(key);
+  if (known !== undefined) return known;
+  const translator = await englishTranslator(target);
+  let said: string;
+  try {
+    said = await translator.translate(text);
+  } catch {
+    throw new EnglishCheckError("failed");
+  }
+  englishSaid.set(key, said);
+  return said;
+}
+
+/** Her words for each problem, naming the language. */
+export function englishCheckMessage(problem: EnglishCheckProblem, language: string): string {
+  switch (problem) {
+    case "no-chrome":
+      return "Checking in English needs Chrome or Edge on a computer. Open this page there to check it.";
+    case "no-language":
+      return `Chrome cannot read ${language} back into English on this computer.`;
+    default:
+      return "Chrome's translator did not answer. Try again in a moment.";
+  }
+}

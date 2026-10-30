@@ -354,6 +354,15 @@ class PyMuPDFDocument(OpenDocument):
             # otherwise inflate object counts and QA expectations.
             if not lines or not any(ln.text.strip() for ln in lines):
                 continue
+            # Blank lines inside a block are dropped too. Word saves an empty
+            # paragraph as a line of spaces, and a column of them behind a
+            # picture of a table stretched one paragraph's box over the whole
+            # table: every word read from the picture then "overlapped" it
+            # (42 false findings on one planning sheet). The spacing is still
+            # measured with them, since they sit at the paragraph's own pitch.
+            line_spacing = _mean_line_spacing(lines, max(set(angles), key=angles.count))
+            lines = [ln for ln in lines if ln.text.strip()]
+            all_spans = [sp for ln in lines for sp in ln.spans]
 
             bbox = Rect.bounding([ln.bbox for ln in lines])
             if bbox is None:
@@ -372,7 +381,7 @@ class PyMuPDFDocument(OpenDocument):
                     source=TextSource.NATIVE,
                     alignment=_detect_alignment(lines),
                     style=_dominant_style(all_spans),
-                    line_spacing=_mean_line_spacing(lines, dominant_angle),
+                    line_spacing=line_spacing,
                 )
             )
         return objects, max_number

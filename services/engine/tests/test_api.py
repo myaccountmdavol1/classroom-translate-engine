@@ -567,7 +567,7 @@ def test_cors_origin_regex_is_honoured_when_configured(monkeypatch):
     compiled = re.compile(pattern)
     assert compiled.fullmatch("https://classroom-translate.vercel.app")
     assert compiled.fullmatch(
-        "https://classroom-translate-a1b2c3d4e-example-team.vercel.app"
+        "https://classroom-translate-bp6otfxry-mds-projects-ebc8e5c5.vercel.app"
     )
     # Must not match a lookalike domain.
     assert not compiled.fullmatch("https://classroom-translate.evil.com")

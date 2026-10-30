@@ -221,6 +221,19 @@ def estimate_scanned_background(
         x0, y0, x1, y1 = pixels(grown)
         judged[y0:y1, x0:x1] = False
 
+    # A long rule above the words is the top border of the table cell they
+    # head, and the patch over the words never reaches it: set its rows aside
+    # like the neighbours' words. On a planning sheet those borders were 12-18%
+    # of the band, so "Math" and "Phys. Ed." in every cell stayed in English.
+    if judged.any():
+        paper = np.median(arr[judged], axis=0)
+        above = np.max(np.abs(arr[:by0].astype(np.int16) - paper), axis=2) > (
+            2 * SCAN_PAPER_TOLERANCE
+        )
+        for row in range(above.shape[0]):
+            if _longest_run(above[row : row + 1]) >= int(SCAN_RULE_LENGTH * zoom):
+                judged[max(0, row - 1) : row + 2] = False
+
     # Too little left to judge is not evidence of paper. An absolute floor,
     # not a share of the band: on single spacing the neighbours' words fill
     # the band above and below, and only the strips at either end remain --
@@ -242,7 +255,8 @@ def estimate_scanned_background(
     )
     if _longest_run(dark.T) >= max(4, dark.shape[0] - 2):
         return None  # something crosses the block top to bottom
-    beside = np.concatenate((dark[:by0], dark[by1:]))
+    # Below the words only: a rule above them is a cell border (see above).
+    beside = dark[by1:]
     if beside.size and _longest_run(beside) >= int(SCAN_RULE_LENGTH * zoom):
         return None  # a leader, underline or arrow along the line
     return (float(median[0]) / 255.0, float(median[1]) / 255.0,

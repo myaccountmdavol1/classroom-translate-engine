@@ -96,8 +96,6 @@ def test_the_editor_has_the_same_files():
                 path.read_bytes()
             ).digest(), other
     web_catalog = WEB / "src" / "lib" / "font-catalog.json"
-    if not web_catalog.is_file():
-        pytest.skip("the editor's font-catalog.json is not in this checkout")
     assert web_catalog.read_bytes() == catalog.CATALOG_FILE.read_bytes()
 
 

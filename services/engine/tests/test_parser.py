@@ -283,3 +283,27 @@ def test_hundred_page_document_is_complete(parser):
     assert all(p.analyzed for p in pages)
     assert sum(len(p.text_objects) for p in pages) > 300
     assert sum(len(p.image_objects) for p in pages) > 0
+
+
+def test_blank_lines_do_not_stretch_a_block(parser):
+    """Word saves empty paragraphs as lines of spaces. Behind a picture of a
+    table they joined the paragraph above, and its box grew over the whole
+    table, so every word read from the picture "overlapped" it."""
+    import fitz
+
+    pdf = fitz.open()
+    page = pdf.new_page(width=612, height=792)
+    page.insert_text(
+        (200, 100), "with your parents and school counselor.\n" + " \n" * 40,
+        fontsize=11,
+    )
+    with parser.open_bytes(pdf.tobytes()) as doc:
+        parsed = doc.parse_page(0)
+
+    [block] = parsed.text_objects
+    assert block.bbox.y1 < 110
+    assert [ln.text.strip() for ln in block.lines] == [
+        "with your parents and school counselor."
+    ]
+    # Measured with the blank lines, which sit at the paragraph's own pitch.
+    assert block.line_spacing == pytest.approx(15.1, abs=0.5)

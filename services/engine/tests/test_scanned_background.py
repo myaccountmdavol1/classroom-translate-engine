@@ -153,6 +153,22 @@ def test_long_rule_beside_the_text_is_refused():
         assert estimate_scanned_background(doc[0], target, words) is None
 
 
+def test_cell_border_above_the_text_is_not_refused():
+    """Real planning sheet: "Math" and "Phys. Ed." head their table cells,
+    just under the cell's top border. The patch covers the words, never the
+    border, so the border is no reason to leave them in English."""
+    data, lines, words = _scan()
+    target = _middle_line(lines)
+
+    def border(page):
+        y = target.y0 - 1.5
+        page.draw_line((target.x0, y), (target.x1, y), width=1.0)
+
+    data, _, _ = _scan(draw_over=border)
+    with fitz.open(stream=data, filetype="pdf") as doc:
+        assert estimate_scanned_background(doc[0], target, words) is not None
+
+
 def test_no_known_text_means_no_second_opinion():
     """Without word boxes there is nothing to set aside; defer to the quick check."""
     data, lines, _ = _scan()
