@@ -167,6 +167,19 @@ export function englishTranslator(target: string): Promise<ChromeTranslator> {
   return t;
 }
 
+/** Whether the English check can run with no click: Chrome already has
+ * this language here, so nothing needs downloading. Never rejects. */
+export async function englishReadyHere(target: string): Promise<boolean> {
+  const T = api();
+  const code = CHROME_CODES[target];
+  if (!T || !code) return false;
+  try {
+    return (await T.availability({ sourceLanguage: code, targetLanguage: "en" })) === "available";
+  } catch {
+    return false;
+  }
+}
+
 const englishSaid = new Map<string, string>();
 
 /** What `text`, in `target`, says in English. */

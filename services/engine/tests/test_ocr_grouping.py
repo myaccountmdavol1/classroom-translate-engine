@@ -118,6 +118,65 @@ def test_each_table_column_is_grouped_although_its_lines_interleave():
     ]
 
 
+def test_an_unfinished_sentence_keeps_its_next_line_though_it_looks_smaller():
+    """Measured on the scanned rubric: OCR guesses a line's size from its
+    words' heights, so "assessments." (no tall letters) read as 5.0pt under
+    a 7.2pt line, the size rule refused, and the last word sat alone."""
+    page = page_with([
+        line_block("through multiple, flexible", 100, height=7.2, size=7.2),
+        line_block("assessments.", 109.8, height=5.0, size=5.0),
+        line_block("challenging and engaging;", 200, height=7.4, size=7.4),
+        line_block("they are designed to meet", 209.3, height=5.0, size=5.0),
+    ])
+    group_ocr_lines(page)
+    texts = sorted(" ".join(ln.text for ln in o.lines) for o in page.text_objects)
+    assert texts == ["challenging and engaging; they are designed to meet",
+                     "through multiple, flexible assessments."]
+
+
+def test_a_finished_sentence_does_not_take_a_smaller_line_after_it():
+    page = page_with([
+        line_block("Read the passage carefully.", 100, height=7.2, size=7.2),
+        line_block("source: page 4", 109.8, height=5.0, size=5.0),
+    ])
+    group_ocr_lines(page)
+    assert len(page.text_objects) == 2
+
+
+def test_the_gap_is_judged_by_the_taller_line():
+    """ "Resources" has no letter below the line, so its box is short and
+    the gap allowed after it (4.9pt) missed "Effectively" by 0.4pt."""
+    page = page_with([
+        line_block("Resources", 100, height=6.5, size=6.5),
+        line_block("Effectively", 111.8, height=8.4, size=8.4),
+    ])
+    group_ocr_lines(page)
+    assert len(page.text_objects) == 1
+
+
+def test_an_unfinished_line_reaches_further_for_its_next_line():
+    """Measured on the scanned rubric: neither line has a letter below the
+    line, so both boxes are short and the gap between them looks large
+    (4.6pt against an allowance of 4.3pt), though the sentence runs on."""
+    page = page_with([
+        line_block("instructional materials and other", 100, height=5.7, size=5.8),
+        line_block("resources to meet individual", 110.3, height=5.7, size=5.0),
+        line_block("Setting Instructional", 200, height=6.7, size=6.7),
+        line_block("Outcomes", 212.0, height=6.7, size=6.7),
+    ])
+    group_ocr_lines(page)
+    assert len(page.text_objects) == 2
+
+
+def test_an_unfinished_line_still_stops_at_a_paragraph_gap():
+    page = page_with([
+        line_block("instructional materials and other", 100, height=5.7, size=5.8),
+        line_block("resources to meet individual", 114.0, height=5.7, size=5.8),
+    ])
+    group_ocr_lines(page)
+    assert len(page.text_objects) == 2
+
+
 def test_a_heading_is_not_absorbed_into_body_text():
     """A size change marks a different kind of content."""
     page = page_with([
