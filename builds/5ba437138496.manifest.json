@@ -1,0 +1,735 @@
+{
+  "generatedBy": "apps/web/scripts/build-engine.mjs",
+  "hash": "5ba437138496",
+  "pyodide": {
+    "version": "0.29.3",
+    "indexURL": "https://cdn.jsdelivr.net/pyodide/v0.29.3/full/",
+    "core": {
+      "pyodide.mjs": "23213d27e9dacbda6f25f955fb38dabfc40ada082c04ee253047ea5dddcaa3b5",
+      "pyodide.asm.js": "1263f02b5b26099b96112378156f242dd98b39a8201ba7765e5fe3d455c5ce91",
+      "pyodide.asm.wasm": "e2f4ee75b325e35eb31bfb8c613d4dd5098f5502c156a97847686875b5025480",
+      "python_stdlib.zip": "4298b6ee445cb724c3973437da47789752b9e6ff4e26619026b283ec801fc46b",
+      "pyodide-lock.json": "3256ffc76388de0e37f4b34d42ab484268d1afc675179ff97b2a5bb14f84ccac"
+    },
+    "packages": [
+      "pymupdf",
+      "lxml",
+      "numpy",
+      "pillow",
+      "pydantic",
+      "fastapi",
+      "httpx",
+      "packaging",
+      "six",
+      "typing-extensions",
+      "typing-inspection"
+    ],
+    "bytes": 38943415
+  },
+  "env": {
+    "CT_PAGE_CONCURRENCY": "1",
+    "CT_MAX_JOB_CONCURRENCY": "1",
+    "CT_STORAGE_ROOT": "/ct",
+    "CT_OCR_PROVIDER": "browser",
+    "CT_TRANSLATION_PROVIDER": "chrome,mozilla,deepl",
+    "CT_LOG_LEVEL": "WARNING",
+    "CT_ENVIRONMENT": "production"
+  },
+  "enginePins": {
+    "fastapi": "0.115.6",
+    "uvicorn": "0.34.0",
+    "python-multipart": "0.0.20",
+    "pydantic": "2.10.4",
+    "pydantic-settings": "2.7.0",
+    "PyMuPDF": "1.25.1",
+    "pypdf": "5.1.0",
+    "pdfplumber": "0.11.4",
+    "python-docx": "1.1.2",
+    "python-pptx": "1.0.2",
+    "lxml": "6.1.3",
+    "Pillow": "11.0.0",
+    "numpy": "2.2.1",
+    "pytesseract": "0.3.13",
+    "langdetect": "1.0.9",
+    "pytest": "8.3.4",
+    "httpx": "0.28.1",
+    "reportlab": "4.2.5"
+  },
+  "wheels": [
+    "wheels/python_dotenv-1.2.3-py3-none-any.whl",
+    "wheels/pydantic_settings-2.7.0-py3-none-any.whl",
+    "wheels/python_multipart-0.0.20-py3-none-any.whl",
+    "wheels/pypdf-5.1.0-py3-none-any.whl",
+    "wheels/python_docx-1.1.2-py3-none-any.whl",
+    "wheels/xlsxwriter-3.2.9-py3-none-any.whl",
+    "wheels/python_pptx-1.0.2-py3-none-any.whl",
+    "wheels/arabic_reshaper-3.0.1-py3-none-any.whl",
+    "wheels/python_bidi-0.4.2-py2.py3-none-any.whl",
+    "wheels/pytesseract-0.3.13-py3-none-any.whl",
+    "wheels/langdetect-1.0.9-py3-none-any.whl"
+  ],
+  "fonts": [
+    {
+      "url": "/fonts/v1/andika/Andika-Bold.ttf",
+      "dest": "andika/Andika-Bold.ttf",
+      "bytes": 681008,
+      "sha256": "4361126189a2d0e0da66999352db58aaf1b4ca940faf8a8239d725f8303d890d"
+    },
+    {
+      "url": "/fonts/v1/andika/Andika-BoldItalic.ttf",
+      "dest": "andika/Andika-BoldItalic.ttf",
+      "bytes": 709628,
+      "sha256": "2d000f8791a1827c0c4d411e9f4593c4fc2db0fdbb868bb1f863593b3d3968e6"
+    },
+    {
+      "url": "/fonts/v1/andika/Andika-Italic.ttf",
+      "dest": "andika/Andika-Italic.ttf",
+      "bytes": 700596,
+      "sha256": "6a4a0dd26d28f577b51dd6afb5acf6fd91ab21694e25649c270a32179bb52a62"
+    },
+    {
+      "url": "/fonts/v1/andika/Andika-Regular.ttf",
+      "dest": "andika/Andika-Regular.ttf",
+      "bytes": 669828,
+      "sha256": "202b96b1f174a4a43baefe885b40dacacb81786755efd08ed4b7704e79c45515"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-Bold.ttf",
+      "dest": "comic-neue/ComicNeue-Bold.ttf",
+      "bytes": 55716,
+      "sha256": "3e7e5fccfd7e0788f317b43312151c1bd5cf058c9697a8d83eac3939050bd61e"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-BoldItalic.ttf",
+      "dest": "comic-neue/ComicNeue-BoldItalic.ttf",
+      "bytes": 55928,
+      "sha256": "5c312c2a2fa64eee82f3b87fcfab8f3b12a5e59b043124401d322eb323cfbf16"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-Italic.ttf",
+      "dest": "comic-neue/ComicNeue-Italic.ttf",
+      "bytes": 54392,
+      "sha256": "e06bfd1552f5c9464c5665733ffd69239b0593885dbb9e059688a5900f78cf98"
+    },
+    {
+      "url": "/fonts/v1/comic-neue/ComicNeue-Regular.ttf",
+      "dest": "comic-neue/ComicNeue-Regular.ttf",
+      "bytes": 57248,
+      "sha256": "a0ee5a37c8b27c4db0700137d928598b1e23b0089e1546a8961909176b779360"
+    },
+    {
+      "url": "/fonts/v1/lexend/Lexend-Bold.ttf",
+      "dest": "lexend/Lexend-Bold.ttf",
+      "bytes": 105564,
+      "sha256": "4509838acc21f2c066e9874c9c5eb52b9b8cdac1771a9c1fe9e7e2cda41ce082"
+    },
+    {
+      "url": "/fonts/v1/lexend/Lexend-Regular.ttf",
+      "dest": "lexend/Lexend-Regular.ttf",
+      "bytes": 100264,
+      "sha256": "e2082c28389e9871d5d77ae9163d5c0c1c259fe39bdac91f73d56a600b61f60f"
+    },
+    {
+      "url": "/fonts/v1/marks/NotoSansSymbols2-Regular.ttf",
+      "dest": "marks/NotoSansSymbols2-Regular.ttf",
+      "bytes": 671568,
+      "sha256": "c4a0a80f0041ce4be81e2478faad22776d23edb98ae3f0d19bd37044820ecf9d"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-Bold.ttf",
+      "dest": "noto-sans/NotoSans-Bold.ttf",
+      "bytes": 432376,
+      "sha256": "87cb2d84472a7d66da659ee47b6cdb9552326e8c128245231f191b6ac72529d9"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-BoldItalic.ttf",
+      "dest": "noto-sans/NotoSans-BoldItalic.ttf",
+      "bytes": 441936,
+      "sha256": "3d367743f371f28671d2764e911a53d7c20ec9b6aa8791d059e7090389fc52a5"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-Italic.ttf",
+      "dest": "noto-sans/NotoSans-Italic.ttf",
+      "bytes": 446880,
+      "sha256": "678288f868807d4d64a6f3b51466871d117d915780381ce9d0ed4b3bcbd06d37"
+    },
+    {
+      "url": "/fonts/v1/noto-sans/NotoSans-Regular.ttf",
+      "dest": "noto-sans/NotoSans-Regular.ttf",
+      "bytes": 431364,
+      "sha256": "f3961a9cde016d41a4879aecda1474d3a36d6bf54fa0e4643de029cc2248b0e8"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-Bold.ttf",
+      "dest": "noto-serif/NotoSerif-Bold.ttf",
+      "bytes": 481892,
+      "sha256": "24ad531e6b05ddad8c3d89572d2c93eb86a6b74e652ce7ee3c3e171de68e84c3"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-BoldItalic.ttf",
+      "dest": "noto-serif/NotoSerif-BoldItalic.ttf",
+      "bytes": 513280,
+      "sha256": "1bc4f86502eaa368718f6192bee022ea9a703d5af1c18b7d291212657b63074a"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-Italic.ttf",
+      "dest": "noto-serif/NotoSerif-Italic.ttf",
+      "bytes": 513428,
+      "sha256": "c4b3c971741ecdb40f5a443bce754e8fe91efe761b6ea10c92be7c3597cdadc4"
+    },
+    {
+      "url": "/fonts/v1/noto-serif/NotoSerif-Regular.ttf",
+      "dest": "noto-serif/NotoSerif-Regular.ttf",
+      "bytes": 482540,
+      "sha256": "a15cfbbc1539d707115111d672d590a3d70d4f74b4c0a315956da20ae19a14e1"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-Bold.ttf",
+      "dest": "open-sans/OpenSans-Bold.ttf",
+      "bytes": 147264,
+      "sha256": "27da758f4dcac9a65abe914c13b463b42982b9909bc65713424099f4810bd1e6"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-BoldItalic.ttf",
+      "dest": "open-sans/OpenSans-BoldItalic.ttf",
+      "bytes": 153308,
+      "sha256": "d672a770037104b6af45e1336b3d3c1729c8aea940f81e010f5a8a7319c29a21"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-Italic.ttf",
+      "dest": "open-sans/OpenSans-Italic.ttf",
+      "bytes": 153256,
+      "sha256": "93bc1bb6abf4e6b7c75d7131714061d5b57cc478abcabe4cb3519bb38fb917aa"
+    },
+    {
+      "url": "/fonts/v1/open-sans/OpenSans-Regular.ttf",
+      "dest": "open-sans/OpenSans-Regular.ttf",
+      "bytes": 147528,
+      "sha256": "c53aceea2dcf5b4098099c0c4d0a061d17e178a049317b42a422b1a9f7f8eb59"
+    }
+  ],
+  "tess": {
+    "variants": {
+      "relaxedsimd-lstm": "tess/tesseract-core-relaxedsimd-lstm",
+      "simd-lstm": "tess/tesseract-core-simd-lstm"
+    },
+    "langs": {
+      "eng": "tess/eng.traineddata"
+    },
+    "coreBytes": 2951626
+  },
+  "bootBytes": 49904936,
+  "readerBytes": 7064714,
+  "mt": {
+    "base": "https://myaccountmdavol1.github.io/classroom-translate-models/",
+    "license": "MPL-2.0",
+    "runtime": {
+      "js": "moz/bergamot-translator-worker.js",
+      "wasm": "moz/bergamot-translator-worker.wasm",
+      "bytes": 5254768
+    },
+    "models": {
+      "es": {
+        "bytes": 24743848,
+        "files": [
+          {
+            "kind": "vocab",
+            "path": "es/254ef90f0a6acd70-vocab.enes.spm.gz",
+            "sha256": "254ef90f0a6acd70ba40a3c3917cbf939c3c8c14a836ad689edb6d6e548dc439",
+            "size": 428865,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "es/56430880007f11ff-model.enes.intgemm.alphas.bin.gz",
+            "sha256": "56430880007f11ff806b0d1829e395db001b41ba72f13c2c16548590fc33edd7",
+            "size": 22126520,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "es/e364b76d0333ab53-lex.50.50.enes.s2t.bin.gz",
+            "sha256": "e364b76d0333ab53e09ceb89905b47300ed9be894fefcadbf126ac4ea4c9393a",
+            "size": 2188463,
+            "gzip": true
+          }
+        ]
+      },
+      "fr": {
+        "bytes": 25181922,
+        "files": [
+          {
+            "kind": "lex",
+            "path": "fr/125b190d3d072865-lex.50.50.enfr.s2t.bin.gz",
+            "sha256": "125b190d3d0728651f4f8db35ba4350b010109747f69e0c7c0dba5cae111fcda",
+            "size": 2219163,
+            "gzip": true
+          },
+          {
+            "kind": "vocab",
+            "path": "fr/1f2fec106c0a1a3e-vocab.enfr.spm.gz",
+            "sha256": "1f2fec106c0a1a3e9c3a7c803154d01eb7afdbbb0798cc69f6270f79d32f4d5c",
+            "size": 429195,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "fr/ce12fbb42dda1ea4-model.enfr.intgemm.alphas.bin.gz",
+            "sha256": "ce12fbb42dda1ea444c23b4aed5b25252cfceafcbd5692f1ee1d0a6a8f1251f9",
+            "size": 22533564,
+            "gzip": true
+          }
+        ]
+      },
+      "ar": {
+        "bytes": 24322284,
+        "files": [
+          {
+            "kind": "model",
+            "path": "ar/40f0ec3c45a8dd25-model.enar.intgemm.alphas.bin.gz",
+            "sha256": "40f0ec3c45a8dd259b880c4340556d64362135db34f9b18f4f60513970dee237",
+            "size": 22300602,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "ar/accbeb62216afcc7-lex.50.50.enar.s2t.bin.gz",
+            "sha256": "accbeb62216afcc752f7e0f90e6d450dce13585b43ee777a4802174ac655093e",
+            "size": 1584155,
+            "gzip": true
+          },
+          {
+            "kind": "vocab",
+            "path": "ar/dd50247ed02c4d44-vocab.enar.spm.gz",
+            "sha256": "dd50247ed02c4d44da0fc538ed71dc4aeee2317480ae83aba501783b14f50e87",
+            "size": 437527,
+            "gzip": true
+          }
+        ]
+      },
+      "bn": {
+        "bytes": 14601838,
+        "files": [
+          {
+            "kind": "model",
+            "path": "bn/15cc543401a8de90-model.enbn.intgemm.alphas.bin.gz",
+            "sha256": "15cc543401a8de90ef032148505f68cfcbf2e716b6b029449574eff928c0788e",
+            "size": 12600810,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "bn/86c9445e8e3da138-lex.50.50.enbn.s2t.bin.gz",
+            "sha256": "86c9445e8e3da138bf08aca7354565666f7048dd8162c36b83bb0996ab183b86",
+            "size": 1546423,
+            "gzip": true
+          },
+          {
+            "kind": "vocab",
+            "path": "bn/d48a12e9199a0cb2-vocab.enbn.spm.gz",
+            "sha256": "d48a12e9199a0cb2d9ad61c2c048b45b33dbdf32453e7497615a6a41294da4b5",
+            "size": 454605,
+            "gzip": true
+          }
+        ]
+      },
+      "ur": {
+        "bytes": 23989949,
+        "files": [
+          {
+            "kind": "vocab",
+            "path": "ur/7bcb3dae59f93693-vocab.enur.spm.gz",
+            "sha256": "7bcb3dae59f93693735632c461dca71b6449c67888047f436f49d59f2817cf28",
+            "size": 438937,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "ur/aaaf683033c634b5-lex.50.50.enur.s2t.bin.gz",
+            "sha256": "aaaf683033c634b511a0ceda1c916c6f9467b80aa7e842d82ea6990e4751ae8c",
+            "size": 1448718,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "ur/ec766bc0d7a2fea2-model.enur.intgemm.alphas.bin.gz",
+            "sha256": "ec766bc0d7a2fea2399dd33b1411ffb7247e76da4c49b0a01dd0a5772a9849b5",
+            "size": 22102294,
+            "gzip": true
+          }
+        ]
+      },
+      "ru": {
+        "bytes": 31703883,
+        "files": [
+          {
+            "kind": "vocab",
+            "path": "ru/1433eafcf55629ff-vocab.enru.spm.gz",
+            "sha256": "1433eafcf55629ff414b444e3bf33b5e8f6913b425b63cb486a03e51602669e8",
+            "size": 437815,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "ru/565db107ca9a7844-model.enru.intgemm.alphas.bin.gz",
+            "sha256": "565db107ca9a7844492e05cc5860bda44790d85605ea543783e1fd714464e607",
+            "size": 29964620,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "ru/e31d218120aa1dc6-lex.50.50.enru.s2t.bin.gz",
+            "sha256": "e31d218120aa1dc68d722f3a4b9b2de15074e41ebb96bb97d551a5601f1df863",
+            "size": 1301448,
+            "gzip": true
+          }
+        ]
+      },
+      "ko": {
+        "bytes": 49185120,
+        "files": [
+          {
+            "kind": "lex",
+            "path": "ko/8a9d03d481e72a2c-lex.50.50.enko.s2t.bin.gz",
+            "sha256": "8a9d03d481e72a2c193e6090469311d1eb9458c70164e94f26e1d7d21b3680b6",
+            "size": 3559128,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "ko/a54618f08ede6625-model.enko.intgemm.alphas.bin.gz",
+            "sha256": "a54618f08ede66253f8004b41308ba63100820f616acbfceaecf318fbb78d789",
+            "size": 44902282,
+            "gzip": true
+          },
+          {
+            "kind": "vocab",
+            "path": "ko/cb704c0b42b43f39-vocab.enko.spm.gz",
+            "sha256": "cb704c0b42b43f397e0068ad8f2caacf33ac15d206b8e68518996e847af33a54",
+            "size": 723710,
+            "gzip": true
+          }
+        ]
+      },
+      "ja": {
+        "bytes": 35615032,
+        "files": [
+          {
+            "kind": "srcvocab",
+            "path": "ja/00cf6b9619a4ea4c-srcvocab.enja.spm.gz",
+            "sha256": "00cf6b9619a4ea4c7b2614459b8a2068c4ecd850e6fb2841e4caca73818ccf23",
+            "size": 424359,
+            "gzip": true
+          },
+          {
+            "kind": "trgvocab",
+            "path": "ja/013bfaada0baafbf-trgvocab.enja.spm.gz",
+            "sha256": "013bfaada0baafbf07296c5ae5974dffa13da1e6926625cf726838751eed0f49",
+            "size": 451069,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "ja/52c931d81fd5f4dc-model.enja.intgemm.alphas.bin.gz",
+            "sha256": "52c931d81fd5f4dc6d5d500368eec6dca1731f13e98adaf49f6f659bd5431d2a",
+            "size": 32467796,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "ja/988930e4b346d4cf-lex.50.50.enja.s2t.bin.gz",
+            "sha256": "988930e4b346d4cf32adc227aad5e442aab409fb3198e0d679518ebd5f09e6b0",
+            "size": 2271808,
+            "gzip": true
+          }
+        ]
+      },
+      "vi": {
+        "bytes": 26506643,
+        "files": [
+          {
+            "kind": "vocab",
+            "path": "vi/83f770865ae54478-vocab.envi.spm.gz",
+            "sha256": "83f770865ae54478ba7d2cf2e8773063eeab1799c0308029b6173d79a6686c4c",
+            "size": 419333,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "vi/a900154e90c48c5b-model.envi.intgemm.alphas.bin.gz",
+            "sha256": "a900154e90c48c5bceb0679deefcf57f66430d2e3bdc1c05dbe1694b05c3f8ca",
+            "size": 23943737,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "vi/e45cc6b1b1644c5d-lex.50.50.envi.s2t.bin.gz",
+            "sha256": "e45cc6b1b1644c5d48a42ebadd4865a8377b31e3d02e0e7cde28a1964c8638cd",
+            "size": 2143573,
+            "gzip": true
+          }
+        ]
+      },
+      "pl": {
+        "bytes": 24210387,
+        "files": [
+          {
+            "kind": "model",
+            "path": "pl/15ce3bd0f6a5f951-model.enpl.intgemm.alphas.bin.gz",
+            "sha256": "15ce3bd0f6a5f951123cc0b4c4be1be1a5e8a101d1e78db24edede736f9988da",
+            "size": 21965519,
+            "gzip": true
+          },
+          {
+            "kind": "vocab",
+            "path": "pl/32caadd83b4879d7-vocab.enpl.spm.gz",
+            "sha256": "32caadd83b4879d7656bfbdf37f4b0ad62c26bdbd55bbad3c37d0793af459d98",
+            "size": 434056,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "pl/bf7bc4cf4b44fdce-lex.50.50.enpl.s2t.bin.gz",
+            "sha256": "bf7bc4cf4b44fdce8e888a02daf41d23b6d1bf018c45211b6561748c51d48be3",
+            "size": 1810812,
+            "gzip": true
+          }
+        ]
+      },
+      "he": {
+        "bytes": 14735150,
+        "files": [
+          {
+            "kind": "vocab",
+            "path": "he/1eb5037e0becbae9-vocab.enhe.spm.gz",
+            "sha256": "1eb5037e0becbae9635969c91d6644331a4298c80d19b5e4aea03f2201300234",
+            "size": 431150,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "he/8f1e6da60a221111-model.enhe.intgemm.alphas.bin.gz",
+            "sha256": "8f1e6da60a221111a458d7273adb76acc96b0269498fc392a48ef57135349b7e",
+            "size": 12790195,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "he/fbdfa1bd8d4be642-lex.50.50.enhe.s2t.bin.gz",
+            "sha256": "fbdfa1bd8d4be642d60973b5fa1293d717e7608efa3aff4ea3d18e19cc8adb81",
+            "size": 1513805,
+            "gzip": true
+          }
+        ]
+      },
+      "uk": {
+        "bytes": 24271427,
+        "files": [
+          {
+            "kind": "lex",
+            "path": "uk/10bf0c9a9ca4ada8-lex.50.50.enuk.s2t.bin.gz",
+            "sha256": "10bf0c9a9ca4ada83b86a4a8c6c8cbcb0705b13a4fab091a7d13706a28f302a3",
+            "size": 1507295,
+            "gzip": true
+          },
+          {
+            "kind": "vocab",
+            "path": "uk/c319d701ba588627-vocab.enuk.spm.gz",
+            "sha256": "c319d701ba58862738944a7e1036329cb518a5713bf055d1d072746cd4cf79c0",
+            "size": 456862,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "uk/e82e41b4516429b3-model.enuk.intgemm.alphas.bin.gz",
+            "sha256": "e82e41b4516429b303182e48931807c80f72c8e7f06b858c58094705f4589a87",
+            "size": 22307270,
+            "gzip": true
+          }
+        ]
+      },
+      "pt": {
+        "bytes": 25348444,
+        "files": [
+          {
+            "kind": "lex",
+            "path": "pt/3101b507dbe82469-lex.50.50.enpt.s2t.bin.gz",
+            "sha256": "3101b507dbe824697356bb0fd0a80fa1be9a7cd3eb22ac4daee4a9760f2dd39b",
+            "size": 2045925,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "pt/9cde46847dc6999e-model.enpt.intgemm.alphas.bin.gz",
+            "sha256": "9cde46847dc6999e22516d9a43f04f37ae966129c6d2e9e1378d609eef3ce305",
+            "size": 22874043,
+            "gzip": true
+          },
+          {
+            "kind": "vocab",
+            "path": "pt/e069ba7a842f3008-vocab.enpt.spm.gz",
+            "sha256": "e069ba7a842f30085caa952dfe75777599df34850681e098d5d3fe1e8e33ae07",
+            "size": 428476,
+            "gzip": true
+          }
+        ]
+      },
+      "zh": {
+        "bytes": 36197761,
+        "files": [
+          {
+            "kind": "trgvocab",
+            "path": "zh/0177ba1f7539de79-trgvocab.enzh.spm.gz",
+            "sha256": "0177ba1f7539de7986cfb7aa9ba1eb983a8c1cc67cc4467a3a9a34549c73bc5b",
+            "size": 446086,
+            "gzip": true
+          },
+          {
+            "kind": "model",
+            "path": "zh/262c060504843e13-model.enzh.intgemm.alphas.bin.gz",
+            "sha256": "262c060504843e131f1eda28ce6bc155c973b0a45a8a67902a60c2cf0f047a75",
+            "size": 32876595,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "zh/4ca7da24fa5a7b90-lex.50.50.enzh.s2t.bin.gz",
+            "sha256": "4ca7da24fa5a7b90d587bbe8adf6fce5fd34c2117b7f67ff361b8ead01fa7b9c",
+            "size": 2447070,
+            "gzip": true
+          },
+          {
+            "kind": "srcvocab",
+            "path": "zh/8e26640fc5b11b57-srcvocab.enzh.spm.gz",
+            "sha256": "8e26640fc5b11b576a04a759e61440cb77407d2490ed9dc19bdc6333c48e1ba3",
+            "size": 428010,
+            "gzip": true
+          }
+        ]
+      },
+      "zh_hant": {
+        "bytes": 35815278,
+        "files": [
+          {
+            "kind": "model",
+            "path": "zh_hant/035a3aca00b42bb6-model.enzh_hant.intgemm.alphas.bin.gz",
+            "sha256": "035a3aca00b42bb66466189ccfc4c27f4e3b09ee3432cd39e10284bc79155ba3",
+            "size": 32738169,
+            "gzip": true
+          },
+          {
+            "kind": "srcvocab",
+            "path": "zh_hant/940a31aa9b663603-srcvocab.enzh_hant.spm.gz",
+            "sha256": "940a31aa9b6636036c6b6bf66d889a634fa25508876e65d0b7803b52784587e7",
+            "size": 424248,
+            "gzip": true
+          },
+          {
+            "kind": "trgvocab",
+            "path": "zh_hant/f3d9e8575a948d98-trgvocab.enzh_hant.spm.gz",
+            "sha256": "f3d9e8575a948d98074bbbaa63aea2c3170719f5d505ab410c2c69d2bd34dc47",
+            "size": 436748,
+            "gzip": true
+          },
+          {
+            "kind": "lex",
+            "path": "zh_hant/f65a7d5b4cc95e0c-lex.50.50.enzh_hant.s2t.bin.gz",
+            "sha256": "f65a7d5b4cc95e0c41afe6f7f1c84fb6be8afaa62cd5c0e8de0036fe1e55a45c",
+            "size": 2216113,
+            "gzip": true
+          }
+        ]
+      }
+    }
+  },
+  "files": {
+    "engine.zip": {
+      "bytes": 427912,
+      "sha256": "441dcf38608025ccdd3c995e98f39e0c28acd8a3a0fa1bc4295244a646e30407"
+    },
+    "engine.worker.js": {
+      "bytes": 33367,
+      "sha256": "1cf1048135c7692fcf088f4f2febc7ecc957a3cf87b49aa48abc1df7d0054087"
+    },
+    "tesseract-sync.js": {
+      "bytes": 5199,
+      "sha256": "7e709050424aca53812c002b76d7c41983f1c3f22d21262a5cb883b1f2c93994"
+    },
+    "mozilla-sync.js": {
+      "bytes": 6721,
+      "sha256": "8fefa5503130d6dc1ebcb73a62ab1cdce2f3fd0404e9911734e7fe901686c94e"
+    },
+    "wheels/python_dotenv-1.2.3-py3-none-any.whl": {
+      "bytes": 22780,
+      "sha256": "904552145e8bfed22162c09dab1c2b9b54fefa7b23ba780f4f26ca0316b0f0d9"
+    },
+    "wheels/pydantic_settings-2.7.0-py3-none-any.whl": {
+      "bytes": 29549,
+      "sha256": "e00c05d5fa6cbbb227c84bd7487c5c1065084119b750df7c8c1a554aed236eb5"
+    },
+    "wheels/python_multipart-0.0.20-py3-none-any.whl": {
+      "bytes": 24546,
+      "sha256": "8a62d3a8335e06589fe01f2a3e178cdcc632f3fbe0d492ad9ee0ec35aab1f104"
+    },
+    "wheels/pypdf-5.1.0-py3-none-any.whl": {
+      "bytes": 297976,
+      "sha256": "3bd4f503f4ebc58bae40d81e81a9176c400cbbac2ba2d877367595fb524dfdfc"
+    },
+    "wheels/python_docx-1.1.2-py3-none-any.whl": {
+      "bytes": 244315,
+      "sha256": "08c20d6058916fb19853fcf080f7f42b6270d89eac9fa5f8c15f691c0017fabe"
+    },
+    "wheels/xlsxwriter-3.2.9-py3-none-any.whl": {
+      "bytes": 175315,
+      "sha256": "9a5db42bc5dff014806c58a20b9eae7322a134abb6fce3c92c181bfb275ec5b3"
+    },
+    "wheels/python_pptx-1.0.2-py3-none-any.whl": {
+      "bytes": 472788,
+      "sha256": "160838e0b8565a8b1f67947675886e9fea18aa5e795db7ae531606d68e785cba"
+    },
+    "wheels/arabic_reshaper-3.0.1-py3-none-any.whl": {
+      "bytes": 20699,
+      "sha256": "41c5adc2420f85758eada7e880251c4b6a2adbd83377bd27e5d4eba71f648bc7"
+    },
+    "wheels/python_bidi-0.4.2-py2.py3-none-any.whl": {
+      "bytes": 30812,
+      "sha256": "50eef6f6a0bbdd685f9e8c207f3c9050f5b578d0a46e37c76a9c4baea2cc2e13"
+    },
+    "wheels/pytesseract-0.3.13-py3-none-any.whl": {
+      "bytes": 14705,
+      "sha256": "7a99c6c2ac598360693d83a416e36e0b33a67638bb9d77fdcac094a3589d4b34"
+    },
+    "wheels/langdetect-1.0.9-py3-none-any.whl": {
+      "bytes": 993332,
+      "sha256": "df33a36e4e6f940eb7966403d3346fc58ea981f1da60e6f19213bee08d06121d"
+    },
+    "tess/tesseract-core-relaxedsimd-lstm.js": {
+      "bytes": 89360,
+      "sha256": "a37ac78b707e8d5d3d2e532cc3c4e69b04d127ea44a608f1e7de17640402aa5c"
+    },
+    "tess/tesseract-core-relaxedsimd-lstm.wasm": {
+      "bytes": 2862266,
+      "sha256": "7985c92d4c64e7267d24cadffe1b2a1da6bf8aa55fdcaf953fe94fe122a24545"
+    },
+    "tess/tesseract-core-simd-lstm.js": {
+      "bytes": 89271,
+      "sha256": "e48e2f02ddae3716c8dd24bf41cd290d4efa96892d689cdc4013c2545d63f469"
+    },
+    "tess/tesseract-core-simd-lstm.wasm": {
+      "bytes": 2857601,
+      "sha256": "34e8d50cac216427d86bf397d610fdd9f49492539bbcdfbfccc4eda20c810bea"
+    },
+    "tess/eng.traineddata": {
+      "bytes": 4113088,
+      "sha256": "7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2"
+    },
+    "moz/bergamot-translator-worker.js": {
+      "bytes": 80474,
+      "sha256": "748b2418418a2ffc6e70721aeb10098d8e6fb589ea156b91f4ae8bc3490d8f7a"
+    },
+    "moz/bergamot-translator-worker.wasm": {
+      "bytes": 5174294,
+      "sha256": "95a2b58dd6773bf1b3f345d71f9149928b9f75f4ec9c9064c0b3e42c298671b2"
+    }
+  }
+}

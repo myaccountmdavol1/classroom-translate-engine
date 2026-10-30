@@ -4,8 +4,11 @@ from __future__ import annotations
 
 from conftest import corpus_file
 from ct_engine.ingest.pdf_parser import PdfParser
-from ct_engine.model.document import DocumentManifest
-from ct_engine.pipeline.analyze import analyze_document
+from ct_engine.model.document import DocumentManifest, Page
+from ct_engine.model.enums import ObjectKind, PageTextMode
+from ct_engine.model.geometry import Rect
+from ct_engine.model.objects import TextLine, TextObject, TextSpan, TextStyle
+from ct_engine.pipeline.analyze import aggregate_analysis, analyze_document
 from ct_engine.pipeline.manifest_store import ManifestStore
 from ct_engine.util.hashing import sha256_bytes
 
@@ -50,6 +53,54 @@ def test_language_is_detected_from_whole_document(store):
     m = _run("07_reading_passage.pdf", store)
     assert m.analysis.detected_language == "en"
     assert m.analysis.detected_language_confidence > 0.8
+
+
+def _text_page(index: int, text: str, mode: PageTextMode) -> Page:
+    bbox = Rect(x0=72, y0=100, x1=540, y1=400)
+    style = TextStyle(font_size=9.0)
+    page = Page(index=index, number=index + 1, width=612.0, height=792.0,
+                text_mode=mode, needs_ocr=mode == PageTextMode.SCANNED,
+                analyzed=True)
+    page.text_objects = [TextObject(
+        id=f"t{index}", kind=ObjectKind.TEXT, bbox=bbox,
+        norm_bbox=bbox.normalized(612, 792),
+        lines=[TextLine(bbox=bbox, spans=[TextSpan(text=text, bbox=bbox, style=style)])],
+        style=style,
+    )]
+    return page
+
+
+# As PyMuPDF reads a rubric re-saved by macOS Preview: the table font's
+# ToUnicode is broken, so every lowercase letter comes out as U+FFFD while
+# capitals and the heading font survive. langdetect called this Bengali
+# with confidence 1.0, and that "bn" went to OCR and translation.
+_UNREADABLE = ("THE FRAMEWORK FOR TEACHING Unsatisfactory Basic Proficient "
+               "Distinguished " + "T�� ����� "
+               "������� " * 120)
+
+
+def _aggregate(pages: list[Page]) -> DocumentManifest:
+    m = _manifest("garbled.pdf", b"x")
+    m.pages = pages
+    m.analysis = aggregate_analysis(m, len(pages))
+    return m
+
+
+def test_unreadable_text_layer_is_not_used_to_detect_language():
+    m = _aggregate([_text_page(0, _UNREADABLE, PageTextMode.SCANNED)])
+    # Unknown, so OCR reads it as English and the translators take it as
+    # English, as for any scanned worksheet: not a confident wrong answer.
+    assert m.analysis.detected_language is None
+
+
+def test_readable_pages_still_decide_the_language_beside_an_unreadable_one():
+    english = ("Read the passage carefully and answer each question in full "
+               "sentences. Explain how the author supports the main idea. ") * 6
+    m = _aggregate([
+        _text_page(0, _UNREADABLE, PageTextMode.SCANNED),
+        _text_page(1, english, PageTextMode.NATIVE),
+    ])
+    assert m.analysis.detected_language == "en"
 
 
 def test_scanned_document_reports_ocr_need_and_warns(store):

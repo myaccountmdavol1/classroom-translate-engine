@@ -262,7 +262,14 @@ def aggregate_analysis(manifest: DocumentManifest, page_count: int) -> DocumentA
         len([k for k, v in orientation_counts.items() if v > 0]) > 1
     )
 
-    sample = sample_document_text([p_text(p) for p in pages if p.analyzed])
+    # Only text layers judged readable. A SCANNED page's text is either
+    # absent or a broken encoding (the parser calls a mostly-U+FFFD layer
+    # scanned), and langdetect named such a rubric Bengali with confidence
+    # 1.0, outvoting real English pages; that "bn" then went to OCR and to
+    # the translators. Unknown is safer: both treat it as English.
+    sample = sample_document_text(
+        [p_text(p) for p in pages if p.analyzed and p.text_mode != PageTextMode.SCANNED]
+    )
     lang, conf, nchars = detect_language(sample)
     analysis.detected_language = lang
     analysis.detected_language_confidence = conf

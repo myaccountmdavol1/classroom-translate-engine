@@ -57,6 +57,20 @@ def _x_overlap_ratio(a: Rect, b: Rect) -> float:
     return overlap / narrower
 
 
+def _continues(previous: TextObject, block: TextObject) -> bool:
+    """Whether `block` is the next line of the paragraph ending in `previous`."""
+    gap = block.bbox.y0 - previous.bbox.y1
+    height = max(previous.bbox.height, 1.0)
+    size_a = previous.style.font_size or height
+    size_b = block.style.font_size or block.bbox.height
+    ratio = max(size_a, size_b) / max(1.0, min(size_a, size_b))
+    return (
+        gap <= height * MAX_GAP_RATIO
+        and _x_overlap_ratio(previous.bbox, block.bbox) >= MIN_X_OVERLAP
+        and ratio <= MAX_SIZE_RATIO
+    )
+
+
 def _merge(blocks: list[TextObject], page: Page) -> TextObject:
     """Fuse a run of single-line blocks into one paragraph block."""
     first = blocks[0]
@@ -112,25 +126,21 @@ def group_ocr_lines(page: Page) -> int:
 
     scan_lines.sort(key=lambda t: (round(t.bbox.y0, 1), t.bbox.x0))
 
+    # Every open run is a candidate, not only the latest. Sorted top to
+    # bottom, the lines of side-by-side table cells alternate (cell A, cell
+    # B, cell A...), so on a scanned rubric no line ever followed its own
+    # cell's line and each was translated alone. The closest run above wins.
     runs: list[list[TextObject]] = [[scan_lines[0]]]
     for block in scan_lines[1:]:
-        current = runs[-1]
-        previous = current[-1]
-
-        gap = block.bbox.y0 - previous.bbox.y1
-        height = max(previous.bbox.height, 1.0)
-        size_a = previous.style.font_size or height
-        size_b = block.style.font_size or block.bbox.height
-        ratio = max(size_a, size_b) / max(1.0, min(size_a, size_b))
-
-        joins = (
-            gap <= height * MAX_GAP_RATIO
-            and _x_overlap_ratio(previous.bbox, block.bbox) >= MIN_X_OVERLAP
-            and ratio <= MAX_SIZE_RATIO
-            and not _starts_new_item(block.flat_text)
-        )
-        if joins:
-            current.append(block)
+        best: list[TextObject] | None = None
+        if not _starts_new_item(block.flat_text):
+            for run in runs:
+                if _continues(run[-1], block) and (
+                    best is None or run[-1].bbox.y1 > best[-1].bbox.y1
+                ):
+                    best = run
+        if best is not None:
+            best.append(block)
         else:
             runs.append([block])
 

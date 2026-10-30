@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 
 from ..config import get_settings
 from ..ingest.base import OpenDocument
+from ..ingest.pdf_parser import garbled_ratio
 from ..model.document import Page, QAFinding
 from ..model.enums import ObjectKind, TextSource
 from ..model.geometry import Rect
@@ -34,6 +35,56 @@ REVIEW_CONFIDENCE = 0.72
 # Below this the text is more likely noise than content; it is dropped and
 # the page is flagged, because inventing words is worse than admitting a gap.
 DISCARD_CONFIDENCE = 0.35
+# A run of text this full of U+FFFD or private-use codes comes from a font
+# whose ToUnicode is broken: its letters exist only in the picture, which is
+# what OCR reads. The parser uses the same share to call a page scanned.
+UNREADABLE_RUN = 0.35
+# An OCR line mostly lying on readable native text is that text read again.
+ALREADY_READ = 0.5
+
+
+def _drop_unreadable_text(page: Page) -> list[Rect]:
+    """Keep only the native text that reads, and return where it is.
+
+    A rubric re-saved by macOS Preview had one font intact and one broken,
+    so a single block held "1d" plus a label of U+FFFD. Kept whole, the
+    block was translated as "1d U R"; dropped whole, "1d" was left to OCR,
+    which read it as "ld". Runs are judged one by one instead: a block of
+    nothing readable is left to OCR, and one with some is cut down to the
+    lines that still read.
+    """
+    readable: list[Rect] = []
+    objects: list[TextObject] = []
+    for obj in page.text_objects:
+        if obj.source != TextSource.NATIVE:
+            objects.append(obj)
+            continue
+        lines: list[TextLine] = []
+        changed = False
+        for line in obj.lines:
+            spans = [s for s in line.spans if garbled_ratio(s.text) <= UNREADABLE_RUN]
+            if len(spans) != len(line.spans):
+                changed = True
+                if not "".join(s.text for s in spans).strip():
+                    continue
+                line = line.model_copy(update={
+                    "spans": spans,
+                    "bbox": Rect.bounding(s.bbox for s in spans),
+                })
+            lines.append(line)
+        if changed:
+            if not lines:
+                continue
+            bbox = Rect.bounding(line.bbox for line in lines)
+            obj = obj.model_copy(update={
+                "lines": lines,
+                "bbox": bbox,
+                "norm_bbox": bbox.normalized(page.width, page.height),
+            })
+        objects.append(obj)
+        readable.extend(line.bbox for line in obj.lines if line.text.strip())
+    page.text_objects = objects
+    return readable
 
 
 @dataclass
@@ -161,6 +212,7 @@ def ocr_page(
         return stats
 
     scale = 72.0 / dpi
+    readable = _drop_unreadable_text(page)
     kept: list[TextObject] = []
     for i, region in enumerate(result.regions):
         if not region.text.strip():
@@ -170,6 +222,8 @@ def ocr_page(
             continue
         obj = _region_to_object(region, scale=scale, page=page, index=i)
         if obj.bbox.is_degenerate(epsilon=1.0):
+            continue
+        if any(obj.bbox.overlap_fraction_of_self(r) > ALREADY_READ for r in readable):
             continue
         if region.confidence < REVIEW_CONFIDENCE:
             stats.low_confidence_regions += 1

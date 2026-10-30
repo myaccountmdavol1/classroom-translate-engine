@@ -97,6 +97,27 @@ def test_different_columns_are_not_merged():
     assert len(page.text_objects) == 2
 
 
+def test_each_table_column_is_grouped_although_its_lines_interleave():
+    """A rubric scanned as a table: sorted top to bottom, the lines of four
+    cells alternate, so comparing each line only with the one before it in
+    that order never found a match, and every line was translated alone
+    ("El profesor / comprensión del contenido")."""
+    page = page_with([
+        line_block("The teacher lacks", 119, x0=142, x1=230, height=8, size=8),
+        line_block("The teacher's", 120, x0=246, x1=330, height=8, size=8),
+        line_block("sufficient knowledge of", 129, x0=142, x1=232, height=8, size=8),
+        line_block("understanding of content", 130, x0=246, x1=334, height=8, size=8),
+        line_block("content and pedagogy.", 139, x0=142, x1=228, height=8, size=8),
+        line_block("partially supports it.", 140, x0=246, x1=326, height=8, size=8),
+    ])
+    group_ocr_lines(page)
+    texts = sorted(" ".join(ln.text for ln in o.lines) for o in page.text_objects)
+    assert texts == [
+        "The teacher lacks sufficient knowledge of content and pedagogy.",
+        "The teacher's understanding of content partially supports it.",
+    ]
+
+
 def test_a_heading_is_not_absorbed_into_body_text():
     """A size change marks a different kind of content."""
     page = page_with([
@@ -215,12 +236,11 @@ def test_a_line_crossing_two_columns_is_split_before_grouping():
     for text in texts:
         assert not ("OUTDOOR" in text and "SERVICE" in text), text
         assert not ("ADVENTURE" in text and "OTHERS" in text), text
-    # NOTE: the two captions are now correctly separated but are NOT yet
-    # joined vertically into "OUTDOOR ADVENTURE". Grouping walks blocks in
-    # y-then-x order and compares each to the previous one, so on a
-    # multi-column grid every run breaks at the column boundary. Fixing that
-    # needs real column detection; a transitive x-overlap clustering attempt
-    # made things worse by letting wide body text bridge unrelated columns.
-    # This test pins the guarantee that matters -- no corruption -- and
-    # documents the known gap.
-    assert len([t for t in texts if t.strip()]) >= 4
+    # And each column's captions are joined. This used to be a known gap:
+    # each line was compared only with the one before it in y-then-x order,
+    # so on a multi-column grid every run broke at the column boundary. Each
+    # line is now compared with the last line of every open run, by the same
+    # pairwise rules (not transitive x-overlap clustering, which let wide
+    # body text bridge unrelated columns).
+    assert sorted(" ".join(t.split()) for t in texts if t.strip()) == [
+        "OUTDOOR ADVENTURE", "SERVICE TO OTHERS"]
