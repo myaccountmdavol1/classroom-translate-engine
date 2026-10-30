@@ -177,6 +177,32 @@ def test_an_unfinished_line_still_stops_at_a_paragraph_gap():
     assert len(page.text_objects) == 2
 
 
+def test_a_stacked_title_case_label_stays_one_label():
+    """Measured on the scanned Domain 4 rubric: "to School" read as 6.0pt and
+    "Community" as 8.4pt (1.40 apart) in one row label, which every line of
+    starts with a capital, so it came out as two boxes."""
+    page = page_with([
+        line_block("Contributing", 404, height=6.6, size=8.6),
+        line_block("to School", 413.4, height=6.5, size=6.0),
+        line_block("Community", 425.2, height=8.4, size=8.4),
+        line_block("and Culture", 437.2, height=6.7, size=6.7),
+    ], )
+    for b in page.text_objects:
+        b.bbox = Rect(x0=63, y0=b.bbox.y0, x1=115, y1=b.bbox.y1)
+    group_ocr_lines(page)
+    assert [" ".join(ln.text for ln in o.lines) for o in page.text_objects] == [
+        "Contributing to School Community and Culture"]
+
+
+def test_a_short_heading_does_not_take_a_long_body_line():
+    page = page_with([
+        line_block("Unit Review", 100, height=10.0, size=14.5),
+        line_block("Answer each question below in full sentences", 110, size=10.0),
+    ])
+    group_ocr_lines(page)
+    assert len(page.text_objects) == 2
+
+
 def test_a_heading_is_not_absorbed_into_body_text():
     """A size change marks a different kind of content."""
     page = page_with([

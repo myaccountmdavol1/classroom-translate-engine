@@ -45,6 +45,9 @@ MAX_SIZE_RATIO = 1.35
 # word heights put one rubric cell's lines 1.48 apart; a 20pt heading over
 # 11pt body text is 1.8.
 MAX_CONTINUATION_SIZE_RATIO = 1.6
+# The longest line still counted as part of a stacked label, such as a
+# rubric's row heading set one or two words to a line.
+MAX_LABEL_LINE_WORDS = 3
 
 # Lines that always begin a new block: a numbered question, a lettered or
 # numbered answer choice, or a bulleted item.
@@ -75,6 +78,18 @@ def _mid_sentence(previous: TextObject, block: TextObject) -> bool:
     return _unfinished(previous) and start.islower()
 
 
+def _stacked_label(previous: TextObject, block: TextObject) -> bool:
+    """Short lines of one title-case label ("Contributing / to School /
+    Community / and Culture"): every line starts with a capital, so the
+    lower-case test cannot see they run on. Body text is longer than this,
+    so a heading over a paragraph is not one."""
+    return (
+        _unfinished(previous)
+        and len(previous.flat_text.split()) <= MAX_LABEL_LINE_WORDS
+        and len(block.flat_text.split()) <= MAX_LABEL_LINE_WORDS
+    )
+
+
 def _continues(previous: TextObject, block: TextObject) -> bool:
     """Whether `block` is the next line of the paragraph ending in `previous`."""
     gap = block.bbox.y0 - previous.bbox.y1
@@ -88,9 +103,8 @@ def _continues(previous: TextObject, block: TextObject) -> bool:
     # Sizes come from the words' heights, so a line of short letters
     # ("assessments.") reads a third smaller than the line above it. When
     # the sentence plainly runs on, that is not a heading meeting body text.
-    size_limit = (
-        MAX_CONTINUATION_SIZE_RATIO if _mid_sentence(previous, block) else MAX_SIZE_RATIO
-    )
+    runs_on = _mid_sentence(previous, block) or _stacked_label(previous, block)
+    size_limit = MAX_CONTINUATION_SIZE_RATIO if runs_on else MAX_SIZE_RATIO
     # Two lines with no letter below the line ("materials and other" over
     # "resources to meet") have short boxes, so the gap between them looks
     # a descender wider than it is. A line that has not finished its

@@ -62,6 +62,11 @@ UNSURE_WORD_CONFIDENCE = 0.50
 # line: sparse reading splits a heading at a wide letter gap ("Add Chrome
 # app or ext" | "sion by ID"), and each half was translated alone.
 SAME_LINE_GAP = 0.8
+# Words further apart than this many line-heights are in different boxes:
+# Tesseract read a planning guide's row of six course boxes as one line,
+# with 0.4 line-heights between words in a box and 2.5 to 5 between boxes.
+# Justified text stretches a space to about one.
+BOX_GAP = 1.5
 # A sentence read below MIN_LABEL_CONFIDENCE but above this, with at least
 # SENTENCE_WORDS real words, is offered to her to check rather than thrown
 # away: on the installation guide that was both sentences of a dialog.
@@ -230,7 +235,7 @@ def extract_image_text(
         curved: list[str] = []
         steep: list[str] = []
         rejected_regions: list[OCRRegion] = []
-        for region in _join_line_pieces(result.regions):
+        for region in _join_line_pieces(_split_at_wide_gaps(result.regions)):
             stats.labels_found += 1
             sentence = len(_WORDLIKE.findall(region.text)) >= SENTENCE_WORDS
             readable = region.confidence >= MIN_LABEL_CONFIDENCE or (
@@ -640,6 +645,45 @@ def _rescue(cluster, tilt: _TiltReader, image, page, accepted, scale_x, scale_y)
     obj.orientation_checked = True
     _turn(obj, reread, found, image, page)
     return obj
+
+
+def _split_at_wide_gaps(regions):
+    """Cut a line where its words jump a gap no sentence has: from one box
+    to the next. Each piece keeps its own words and unreadable glyphs."""
+    out: list = []
+    for region in regions:
+        height = max(region.bbox[3] - region.bbox[1], 1.0)
+        groups: list[list] = []
+        for word in sorted(region.words, key=lambda w: w.bbox[0]):
+            if groups and word.bbox[0] - max(w.bbox[2] for w in groups[-1]) <= BOX_GAP * height:
+                groups[-1].append(word)
+            else:
+                groups.append([word])
+        if len(groups) < 2:
+            out.append(region)
+            continue
+        spans = [(min(w.bbox[0] for w in g), max(w.bbox[2] for w in g)) for g in groups]
+        glyphs: list[list] = [[] for _ in groups]
+        for box in region.discarded_boxes:
+            middle = (box[0] + box[2]) / 2
+            nearest = min(range(len(spans)),
+                          key=lambda i: max(spans[i][0] - middle, middle - spans[i][1], 0))
+            glyphs[nearest].append(box)
+        for group, (x0, x1), boxes in zip(groups, spans, glyphs):
+            chars = sum(len(w.text) for w in group)
+            out.append(OCRRegion(
+                text=" ".join(w.text for w in group),
+                bbox=(x0, region.bbox[1], x1, region.bbox[3]),
+                confidence=round(
+                    sum(w.confidence * len(w.text) for w in group) / max(1, chars), 4
+                ),
+                rotation=region.rotation,
+                handwritten=region.handwritten,
+                line_index=region.line_index,
+                words=group,
+                discarded_boxes=boxes,
+            ))
+    return out
 
 
 def _join_line_pieces(regions):
