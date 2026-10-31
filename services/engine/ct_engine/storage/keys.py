@@ -85,3 +85,14 @@ def upload_notes_key(document_id: str) -> str:
     afresh and would otherwise drop them from.
     """
     return f"{doc_prefix(document_id)}/upload-notes.json"
+
+
+def word_final_key(document_id: str, target_lang: str) -> str:
+    """The finished Word file, built by the translation job."""
+    return f"{doc_prefix(document_id)}/export/word-final-{target_lang}.docx"
+
+
+def word_final_meta_key(document_id: str, target_lang: str) -> str:
+    """What the download needs to hand the finished Word file over: its
+    counts, and what the document looked like when it was built."""
+    return f"{doc_prefix(document_id)}/export/word-final-{target_lang}.json"

@@ -291,6 +291,28 @@ def rejoin_part(part: SegmentPart, body: str) -> str:
     )
 
 
+# Share of a label's letters that must be capitals for its translation to be
+# written in capitals. Not all: hand lettering is read with the odd small
+# letter ("DAy OF THE DORK-WIT").
+CAPITALS_SHARE = 0.8
+
+
+def match_capitals(source: str, translated: str) -> str:
+    """The translation in capitals when the source was lettered in them.
+
+    For words read from a Word picture, where a title in capitals ("MAY")
+    came back "Mayo" and looked like a different picture. Only letters
+    count, so numbers and punctuation alone change nothing.
+    """
+    letters = [ch for ch in source if ch.isalpha()]
+    if not letters:
+        return translated
+    upper = sum(1 for ch in letters if ch.isupper())
+    if upper / len(letters) < CAPITALS_SHARE:
+        return translated
+    return translated.upper()
+
+
 def compose_output(
     label: str, translated: str, source: str, mode: OutputLanguageMode
 ) -> str:
@@ -504,6 +526,10 @@ def translate_page(
             if plan.label
             else "".join(rendered).strip()
         )
+        if obj.fill_box:
+            # Only labels read from a Word picture (see TextObject.fill_box):
+            # elsewhere a heading in capitals is the translator's to case.
+            composed_text = match_capitals(obj.flat_text, composed_text)
         obj.translated_text = composed_text
         obj.machine_translated_text = composed_text
         translation_only = (
@@ -511,6 +537,8 @@ def translate_page(
             if plan.label
             else "".join(rendered_translation_only).strip()
         )
+        if obj.fill_box:
+            translation_only = match_capitals(obj.flat_text, translation_only)
         obj.translation_only_text = translation_only or composed_text
         obj.translation_status = TranslationStatus.TRANSLATED
         stats.translated += 1

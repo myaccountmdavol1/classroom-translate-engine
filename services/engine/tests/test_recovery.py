@@ -146,3 +146,17 @@ def test_numbers_flagged_only_when_the_source_ones_are_lost(store, source, trans
     obj.translated_text = translation
     codes = {f.code for f in value_findings(manifest.page(0)) if obj.id in f.object_ids}
     assert ("numeric_content_changed" in codes) is flagged
+
+
+def test_repairing_a_picture_label_keeps_its_capitals(store, monkeypatch):
+    from ct_engine.translate.one_off import OneOffTranslation
+    manifest = prepared(store)
+    obj = first_editable(manifest)
+    obj.fill_box = True
+    obj.approved_source_text = 'NAME: ______________________'
+    obj.translated_text = None
+    obj.translation_status = TranslationStatus.FAILED
+    monkeypatch.setattr('ct_engine.translate.one_off.translate_one', lambda *a, **kw: OneOffTranslation(
+        text='Nombre: ______________________', provider='fixture', protected_intact=True))
+    preview = preview_repair(manifest, 1, obj.id, store=store, target_lang='es')
+    assert preview['translation'] == 'NOMBRE: ______________________'

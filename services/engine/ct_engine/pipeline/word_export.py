@@ -110,21 +110,24 @@ def _strip_marker(unit_text: str, block, text: str) -> str:
     return text
 
 
-def build_office_export(
-    manifest, *, store, target_lang: str, translated_pdf: bytes | None = None,
-):
-    """The teacher's .docx or .pptx with every paragraph translated as on the
-    pages. Slides work exactly as Word does: each slide's paragraphs are
-    matched to the blocks they became on the slide's page."""
-    from ..translate.one_off import OneOffError, translate_many
-
+def _office_classes(manifest):
     if manifest.office_format == "pptx":
         from ..ingest.pptx_parser import PptxParser as Parser
         from ..reconstruct.pptx_builder import rebuild_pptx as rebuild
     else:
         from ..ingest.docx_parser import DocxParser as Parser
         rebuild = rebuild_docx
+    return Parser, rebuild
 
+
+def _alone_key(unit) -> str:
+    return sha256_bytes(unit.text.strip().encode())[:16]
+
+
+def _paragraphs(manifest, store):
+    """The file, its parsed pages, its paragraphs, and which page blocks
+    stand in for each."""
+    Parser, _ = _office_classes(manifest)
     source = store.get_bytes(manifest.office_source_key)
     with Parser().open_bytes(source) as doc:
         word_pages = [doc.parse_page(i) for i in range(doc.page_count)]
@@ -141,16 +144,20 @@ def build_office_export(
         for t in sorted(p.text_objects, key=lambda t: t.reading_index)
         if t.source is TextSource.NATIVE and not t.is_manual_block
     ]
-    matched = match_paragraphs(units, blocks)
+    return source, word_pages, units, match_paragraphs(units, blocks)
+
+
+def _translate_alone(manifest, *, store, target_lang, units, matched, translate=True):
+    """Translate the paragraphs that are translated by themselves, keeping
+    each in the cache. Returns the cache and which paragraphs those are.
+    With `translate` False no translator is called: only the cache is read."""
+    from ..translate.one_off import OneOffError, translate_many
 
     cache_key = K.doc_prefix(manifest.document_id) + f"/export/word-alone-v2-{target_lang}.json"
     try:
         alone = json.loads(store.get_text(cache_key))
     except Exception:
         alone = {}
-
-    def alone_key(unit) -> str:
-        return sha256_bytes(unit.text.strip().encode())[:16]
 
     # Pass 1: which paragraphs are translated by themselves.
     wrapped: set[int] = set()   # split over blocks only by the page's wrapping
@@ -173,13 +180,13 @@ def build_office_export(
     # A line break of its own survives only translated line by line, so a
     # paragraph is sent as its lines and put back together.
     todo = [
-        i for i in sorted(wrapped | unmatched) if alone_key(units[i]) not in alone
+        i for i in sorted(wrapped | unmatched) if _alone_key(units[i]) not in alone
     ]
     lines: list[str] = []
     for i in todo:
         lines.extend(line for line in units[i].text.split("\n") if line.strip())
-    translated: list = []
-    if lines:
+    translated: list = [None] * len(lines)
+    if lines and translate:
         try:
             translated = translate_many(
                 lines, target_lang=target_lang,
@@ -187,6 +194,12 @@ def build_office_export(
             )
         except OneOffError as exc:
             log.warning("Word export: paragraphs could not be translated: %s", exc.diagnostic)
+            translated = [None] * len(lines)
+        except Exception as exc:
+            # Whatever stopped the translator (in the browser it has run out
+            # of memory), the paragraphs keep their words and are counted,
+            # so the page and the download say so rather than nothing.
+            log.warning("Word export: the translator broke on the paragraphs: %r", exc)
             translated = [None] * len(lines)
     alone_changed = False
     at = 0
@@ -205,15 +218,61 @@ def build_office_export(
         # A paragraph with any line missing is not kept: half English, half
         # translated would read as finished.
         if complete:
-            alone[alone_key(units[i])] = "\n".join(out)
+            alone[_alone_key(units[i])] = "\n".join(out)
             alone_changed = True
+
+    if alone_changed:
+        store.put_text(cache_key, json.dumps(alone))
+    return alone, wrapped, unmatched
+
+
+def translate_word_paragraphs(
+    manifest, *, store, target_lang: str, translate: bool = True,
+) -> int:
+    """Translate, ahead of the download, the paragraphs the download
+    translates by themselves, and keep them for it.
+
+    Run by the translation job: in the browser the translators are made
+    ready for a job, and a download after the page is reloaded is not one,
+    so translated only then the whole file kept its English. Returns how
+    many paragraphs still have no translation and would keep their
+    original words. With `translate` False it only counts, from the cache.
+    """
+    _, _, units, matched = _paragraphs(manifest, store)
+    alone, _, unmatched = _translate_alone(
+        manifest, store=store, target_lang=target_lang, units=units, matched=matched,
+        translate=translate,
+    )
+    return sum(1 for i in unmatched if _alone_key(units[i]) not in alone)
+
+
+def build_office_export(
+    manifest, *, store, target_lang: str, translated_pdf: bytes | None = None,
+):
+    """The teacher's .docx or .pptx with every paragraph translated as on the
+    pages. Slides work exactly as Word does: each slide's paragraphs are
+    matched to the blocks they became on the slide's page."""
+    _, rebuild = _office_classes(manifest)
+    source, word_pages, units, matched = _paragraphs(manifest, store)
+    # The job has translated these already (translate_word_paragraphs, which
+    # counts them on the manifest). When it did, the download reads its
+    # translations only and never calls a translator: in the browser,
+    # translating outside a job crashed the engine and the download never
+    # finished, and the job's count is what the teacher was told. A
+    # paragraph it could not translate keeps its words, counted as today.
+    # A document from before the job did this (no count) translates here.
+    job_did_it = getattr(manifest, "word_paragraphs_kept", None) is not None
+    alone, wrapped, unmatched = _translate_alone(
+        manifest, store=store, target_lang=target_lang, units=units, matched=matched,
+        translate=not job_did_it,
+    )
 
     # Pass 2: write each paragraph's translation.
     kept_original = 0
     for i, unit in enumerate(units):
         found = matched.get(i)
         if i in wrapped or i in unmatched:
-            text = alone.get(alone_key(unit))
+            text = alone.get(_alone_key(unit))
             if text is not None:
                 unit.translated_text = text
                 unit.translation_status = TranslationStatus.TRANSLATED
@@ -261,8 +320,6 @@ def build_office_export(
                 unit.manual_font_family = b.manual_font_family
         unit.suppressed = all(b.suppressed for b in found)
 
-    if alone_changed:
-        store.put_text(cache_key, json.dumps(alone))
     log.info(
         "Word export: %d of %d paragraphs from the pages, %d translated alone",
         len(matched), len(units), len(units) - len(matched),
@@ -308,3 +365,146 @@ def build_office_export(
 
 # The name it had before slides were added.
 build_word_export = build_office_export
+
+
+# -- the finished file, built by the job ---------------------------------------
+#
+# In the browser, a download after the page was reloaded crashed the engine
+# building a long book's file (36 pictures); the same work inside the job
+# succeeds. So the job builds the file once and stores it, and the download
+# hands it over -- but only while nothing it holds has changed since.
+
+# Part of every stored file's stamp. Bump it whenever what word_export or
+# word_pictures writes into the file changes, so a file stored by an older
+# engine is built again rather than handed over.
+_WORD_EXPORT_VERSION = 1
+
+
+def office_export_stamp(manifest, *, target_lang: str, export_key: str | None) -> str:
+    """What the document looked like, for the Word file, when it was built.
+
+    Every page's fingerprint, the one the export's own rebuild uses to find
+    edited pages: every text object, picture and region on the page, all
+    but previews, checks and counters. An edit by any route -- a block's
+    words, a box drawn on a picture, one removed or moved -- changes it,
+    because it compares what is there rather than trusting each route to
+    mark it. With it the job's paragraph count (the download writes its
+    translations only when the job counted them), the file read, the
+    language and the translated pages it was built from.
+    """
+    from .reconstruct_stage import _page_fingerprint
+
+    raw = json.dumps(
+        {
+            "version": _WORD_EXPORT_VERSION,
+            "target_lang": target_lang,
+            "export_key": export_key,
+            "office_source_key": manifest.office_source_key,
+            "word_paragraphs_kept": getattr(manifest, "word_paragraphs_kept", None),
+            "pages": [_page_fingerprint(p) for p in manifest.pages],
+        },
+        sort_keys=True,
+    )
+    return sha256_bytes(raw.encode("utf-8"))
+
+
+def store_office_export(
+    manifest, *, store, target_lang: str, export_key: str, job_id: str | None = None
+) -> bool:
+    """Build the finished Word file and keep it for the download.
+
+    Never raises: a file that could not be built or kept is simply built
+    again at download, as before. The old record is replaced first, so a
+    failure here can never leave an earlier build to be handed over.
+
+    In the browser a crash while building (WebAssembly running out of
+    memory) cannot be caught: the worker dies and the job resumes into this
+    same step, to crash again until it fails. So a mark naming the job is
+    kept in the record's place while building; a job that finds its own
+    mark crashed here before, and leaves the file to the download."""
+    doc_id = manifest.document_id
+    meta_key = K.word_final_meta_key(doc_id, target_lang)
+    if job_id is not None:
+        try:
+            previous = json.loads(store.get_text(meta_key))
+        except Exception:
+            previous = None
+        if (
+            isinstance(previous, dict)
+            and previous.get("building")
+            and previous.get("job_id") == job_id
+        ):
+            log.warning(
+                "The Word file was being built when this job stopped; "
+                "it is left to the download."
+            )
+            try:
+                store.delete(meta_key)
+            except Exception:
+                pass
+            return False
+    try:
+        store.delete(meta_key)
+        if job_id is not None:
+            store.put_text(
+                meta_key,
+                json.dumps({"building": True, "job_id": job_id,
+                            "target_lang": target_lang}),
+                content_type="application/json",
+            )
+        stamp = office_export_stamp(
+            manifest, target_lang=target_lang, export_key=export_key
+        )
+        translated_pdf = store.get_bytes(export_key)
+        result = build_office_export(
+            manifest, store=store, target_lang=target_lang,
+            translated_pdf=translated_pdf,
+        )
+        # The translated pages are the largest thing held; let them go
+        # before the file is written.
+        del translated_pdf
+        meta = {
+            "target_lang": target_lang,
+            "stamp": stamp,
+            "pictures_kept_pages": list(result.pictures_kept_pages or []),
+            "paragraphs_kept_original": int(result.paragraphs_kept_original or 0),
+        }
+        store.put_bytes(K.word_final_key(doc_id, target_lang), result.data)
+        del result
+        # Written last: a record means the file beside it is complete.
+        store.put_text(meta_key, json.dumps(meta), content_type="application/json")
+    except Exception as exc:
+        log.warning("The finished Word file could not be kept: %r", exc)
+        try:
+            store.delete(meta_key)
+        except Exception:
+            pass
+        return False
+    return True
+
+
+def stored_office_export(manifest, *, store, target_lang: str, export_key: str | None):
+    """The file the job built and its record, or None when there is none,
+    it is in another language, or anything it holds has changed since."""
+    doc_id = manifest.document_id
+    try:
+        meta = json.loads(store.get_text(K.word_final_meta_key(doc_id, target_lang)))
+    except Exception:
+        return None
+    if meta.get("building") or meta.get("target_lang") != target_lang:
+        # A build that never finished is never handed over.
+        return None
+    try:
+        stamp = office_export_stamp(
+            manifest, target_lang=target_lang, export_key=export_key
+        )
+    except Exception as exc:
+        log.warning("Could not tell whether the stored Word file is current: %r", exc)
+        return None
+    if meta.get("stamp") != stamp:
+        return None
+    try:
+        data = store.get_bytes(K.word_final_key(doc_id, target_lang))
+    except Exception:
+        return None
+    return data, meta

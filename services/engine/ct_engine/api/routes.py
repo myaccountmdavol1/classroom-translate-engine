@@ -306,6 +306,29 @@ def _has_pictures(data: bytes, fmt: SourceFormat) -> bool:
         return False
 
 
+def _pictures_as_pages(data: bytes):
+    """A Word file's pictures as a PDF, one page each, validated -- or None.
+
+    Where LibreOffice is not here (always, in the browser) this stands in for
+    laying the file out: the pictures' words are translated on these pages,
+    and every paragraph straight from the Word file at download.
+    """
+    from ..ingest.word_pictures_pdf import pictures_pdf
+
+    try:
+        pictures = pictures_pdf(data)
+    except Exception as exc:
+        log.warning("Word pictures could not be put on pages: %r", exc)
+        return None
+    if pictures.pdf is None:
+        return None
+    checked = validate_upload(pictures.pdf, "document.pdf")
+    if not checked.ok:
+        log.warning("Word pictures' pages did not validate: %s", checked.diagnostic)
+        return None
+    return pictures, checked
+
+
 def _upload_notes(document_id: str) -> dict:
     """The upload-time warnings kept for this document (see keys.py)."""
     try:
@@ -391,12 +414,26 @@ async def _accept_upload(
     paged = False
     office_fmt = fmt
     pictures_not_read: str | None = None
+    word_pictures_shown: int | None = None
+    pictures_only = False
     if fmt in (SourceFormat.DOCX, SourceFormat.PPTX):
         from ..ingest.word_render import WordRenderError, can_render_word, office_to_pdf
         reason: str | None = None
         data = await run_in_threadpool(upload_path.read_bytes)
         if not can_render_word():
-            reason = "This server cannot lay out this kind of file as pages."
+            # Always so in the browser: nothing there lays a Word file out
+            # as pages. Its pictures are given pages of their own instead;
+            # only when none can be is it a list of its text, said below.
+            reason = "Words inside the pictures of this file are not read here yet."
+            if fmt is SourceFormat.DOCX:
+                found = await run_in_threadpool(_pictures_as_pages, data)
+                if found is not None:
+                    pictures, checked = found
+                    data, result, paged = pictures.pdf, checked, True
+                    word_pictures_shown = pictures.shown
+                    pictures_only = True
+                    fmt = SourceFormat.PDF
+                    reason = None
         else:
             try:
                 pdf = await run_in_threadpool(office_to_pdf, data, fmt.extension)
@@ -418,10 +455,10 @@ async def _accept_upload(
         if reason and await run_in_threadpool(_has_pictures, data, fmt):
             pictures_not_read = reason
             notes.append(
-                f"{reason} It opens as a list of its text instead, so words "
-                "inside its pictures will not be translated; the pictures "
-                "stay exactly as they are. To translate them, download it as "
-                "a PDF and upload that, or split it into smaller files."
+                f"{reason} It opens as a list of its text, so words inside "
+                "its pictures will not be translated; the pictures stay "
+                "exactly as they are. To translate them too, save it as a "
+                "PDF and upload that."
             )
 
     # uuid4 hex: unguessable, so a document URL cannot be enumerated.
@@ -459,6 +496,7 @@ async def _accept_upload(
         )
         manifest.office_source_key = word_key
         manifest.office_format = office_fmt.extension
+        manifest.office_pictures_only = pictures_only
         manifest.original_upload_key = word_key
         manifest.original_sha256 = upload_sha
         manifest.original_content_type = office_fmt.content_type
@@ -472,13 +510,14 @@ async def _accept_upload(
         manifest.original_content_type = original_mime
     manifest.analysis.page_count = result.page_count
     manifest.analysis.warnings.extend(notes)
-    if notes:
+    if notes or word_pictures_shown is not None:
         # The analysis stage rebuilds manifest.analysis from the pages, which
         # would drop these; kept beside it, they are added back when the
         # document is read (get_document, the report).
         store.put_text(
             K.upload_notes_key(document_id),
-            json.dumps({"warnings": notes, "pictures_not_read": pictures_not_read}),
+            json.dumps({"warnings": notes, "pictures_not_read": pictures_not_read,
+                        "word_pictures_shown": word_pictures_shown}),
             content_type="application/json",
         )
     manifests.save_manifest(manifest)
@@ -970,29 +1009,42 @@ def download_translated(document_id: str) -> Response:
     if manifest.office_source_key:
         # Shown as pages, handed back as the Word or PowerPoint file she
         # uploaded, with the pages' translations and her edits written in.
-        from ..pipeline.word_export import build_office_export
-        try:
-            export = build_office_export(
-                manifest, store=store, target_lang=job.settings.target_language,
-                translated_pdf=store.get_bytes(job.export_key),
-            )
-        except Exception as exc:
-            raise _fail(
-                500, "The translated file could not be prepared.", repr(exc),
-            ) from exc
-        kept_pages = list(getattr(export, "pictures_kept_pages", None) or [])
+        from ..pipeline import word_export
+
+        # The job built the file and kept it (see store_office_export); it
+        # is handed over as it is while nothing it holds has changed. In the
+        # browser, building a long book's file here after a reload crashed
+        # the engine. After an edit, or with no kept file, it is built here.
+        stored = word_export.stored_office_export(
+            manifest, store=store, target_lang=job.settings.target_language,
+            export_key=job.export_key,
+        )
+        if stored is not None:
+            data, meta = stored
+            kept_pages = [int(n) for n in meta.get("pictures_kept_pages") or []]
+            kept_paragraphs = int(meta.get("paragraphs_kept_original") or 0)
+        else:
+            try:
+                export = word_export.build_office_export(
+                    manifest, store=store, target_lang=job.settings.target_language,
+                    translated_pdf=store.get_bytes(job.export_key),
+                )
+            except Exception as exc:
+                raise _fail(
+                    500, "The translated file could not be prepared.", repr(exc),
+                ) from exc
+            data = export.data
+            kept_pages = list(getattr(export, "pictures_kept_pages", None) or [])
+            kept_paragraphs = int(getattr(export, "paragraphs_kept_original", 0) or 0)
         _record_pictures_kept(document_id, kept_pages)
         if kept_pages:
             # What the editor showed and what the file holds differ; the page
             # says so. "<count>;pages=<page,page>", one count per picture.
             unique = ",".join(str(n) for n in sorted(set(kept_pages)))
             headers[PICTURES_KEPT_HEADER] = f"{len(kept_pages)};pages={unique}"
-        kept_paragraphs = int(getattr(export, "paragraphs_kept_original", 0) or 0)
         if kept_paragraphs > 0:
             headers[PARAGRAPHS_KEPT_HEADER] = str(kept_paragraphs)
-        return Response(
-            content=export.data, media_type=fmt.content_type, headers=headers
-        )
+        return Response(content=data, media_type=fmt.content_type, headers=headers)
 
     path = store.local_path(job.export_key)
     if path is not None:
@@ -1073,6 +1125,19 @@ def translation_report(document_id: str) -> dict:
         for t in image_labels
         if t.translation_status.value in ("TRANSLATED", "MANUAL_EDIT")
     )
+    # A Word file shown through its pictures (see _pictures_as_pages): how
+    # many it shows, and how many had translated words painted on them --
+    # the same rule the download uses to put a picture back in the file. A
+    # translated label that was never painted (a cover photo's, refused over
+    # the photo) was counted before, and the report said 35 where the file
+    # had 34. The rest had no words, words too unclear to touch, or are not
+    # PNG or JPEG.
+    pictures_shown = _upload_notes(document_id).get("word_pictures_shown")
+    pictures_translated = None
+    if pictures_shown is not None:
+        from ..pipeline.word_pictures import pages_with_labelled_pictures
+
+        pictures_translated = len(set(pages_with_labelled_pictures(manifest)))
     images_with_unreadable = sorted(
         {
             p.number
@@ -1178,6 +1243,13 @@ def translation_report(document_id: str) -> dict:
         "pages_hard_to_read": low_confidence_pages,
         "embedded_image_text": image_text_status,
         "image_labels_translated": image_labels_translated,
+        "pictures_shown": pictures_shown,
+        "pictures_translated": pictures_translated,
+        # A Word file shown as pages: paragraphs the job could not translate,
+        # which stay in the original language in the download.
+        "paragraphs_kept_original": (
+            manifest.word_paragraphs_kept if manifest.office_source_key else None
+        ),
         "images_with_unreadable_text": images_with_unreadable,
         "automated_content_review": (
             f"{manifest.verified_page_count} / {manifest.source_page_count} "

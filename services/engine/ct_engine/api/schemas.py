@@ -171,6 +171,9 @@ class DocumentOut(BaseModel):
     failed_pages: list[int]
     pages_needing_review: list[int]
     job: JobOut | None = None
+    # A Word file shown through its pictures (nothing could lay it out as
+    # pages): the page speaks of pictures, not pages.
+    office_pictures_only: bool = False
 
     @classmethod
     def of(
@@ -219,6 +222,7 @@ class DocumentOut(BaseModel):
             failed_pages=m.failed_pages,
             pages_needing_review=m.pages_needing_review,
             job=JobOut.of(job) if job else None,
+            office_pictures_only=bool(m.office_pictures_only),
         )
 
 

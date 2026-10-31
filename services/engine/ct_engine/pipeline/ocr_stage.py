@@ -21,7 +21,7 @@ from ..config import get_settings
 from ..ingest.base import OpenDocument
 from ..ingest.pdf_parser import garbled_ratio
 from ..model.document import Page, QAFinding
-from ..model.enums import ObjectKind, TextSource
+from ..model.enums import ObjectKind, TextAlignment, TextSource
 from ..model.geometry import Rect
 from ..model.objects import TextLine, TextObject, TextSpan, TextStyle, _new_id
 from ..providers.ocr.base import OCRProvider, OCRRegion
@@ -98,9 +98,13 @@ class OCRStats:
 
 
 def _region_to_object(
-    region: OCRRegion, *, scale: float, page: Page, index: int
+    region: OCRRegion, *, scale: float, page: Page, index: int,
+    pictures: bool = False,
 ) -> TextObject:
-    """Convert one OCR line from image pixels to a page-space TextObject."""
+    """Convert one OCR line from image pixels to a page-space TextObject.
+
+    `pictures`: the page is one picture of a Word file (see ocr_page).
+    """
     x0, y0, x1, y1 = (v * scale for v in region.bbox)
     bbox = Rect(x0=x0, y0=y0, x1=x1, y1=y1).clamped_to(page.bounds)
 
@@ -111,7 +115,11 @@ def _region_to_object(
     # 65pt. The lower median of the word heights ignores one tall outlier.
     heights = sorted((w.bbox[3] - w.bbox[1]) * scale for w in region.words)
     typical = heights[(len(heights) - 1) // 2] if heights else bbox.height
-    font_size = round(max(5.0, min(72.0, typical, bbox.height)), 1)
+    # The 72pt cap is right for a scanned page's body text. A Word picture's
+    # title lettering is far bigger ("MAY" was 250pt tall), and capped it
+    # was drawn small in the corner of a picture it had filled.
+    cap = bbox.height if pictures else 72.0
+    font_size = round(max(5.0, min(cap, typical, bbox.height)), 1)
 
     style = TextStyle(font_family=None, font_size=font_size)
 
@@ -162,6 +170,11 @@ def _region_to_object(
         style=style,
         confidence=region.confidence,
         cover_boxes=cover_boxes,
+        # Picture lettering is centred in its picture far more often than
+        # not, and a translation of a different length drawn from the left
+        # edge looked pushed into the corner.
+        alignment=TextAlignment.CENTER if pictures else TextAlignment.UNKNOWN,
+        fill_box=pictures,
     )
 
 
@@ -172,6 +185,7 @@ def ocr_page(
     *,
     language: str | None,
     dpi: int | None = None,
+    pictures: bool = False,
 ) -> OCRStats:
     """Read a scanned page and attach the recognized text to it."""
     stats = OCRStats()
@@ -193,11 +207,19 @@ def ocr_page(
         )
         return stats
 
-    # Ruled tables defeat Tesseract, so it reads a copy with the grid taken
-    # out. Same size, so its boxes still map onto the page unchanged.
-    result = provider.recognize(
-        remove_grid_lines(png, dpi=dpi) or png, language=language
-    )
+    if pictures:
+        # A page that is one picture of a Word file holds a few big
+        # hand-lettered words. Grid removal erases their thick strokes as if
+        # they were table lines ("LAST SEPTEMBER" read "LAS SEP' EMBER"), and
+        # page-layout reading finds no text in a lone word ("MAY" read
+        # nothing). So read it as it is, sparse.
+        result = provider.recognize(png, language=language, sparse=True)
+    else:
+        # Ruled tables defeat Tesseract, so it reads a copy with the grid
+        # taken out. Same size, so its boxes still map onto the page unchanged.
+        result = provider.recognize(
+            remove_grid_lines(png, dpi=dpi) or png, language=language
+        )
     if result.error:
         stats.findings.append(
             QAFinding(
@@ -220,7 +242,9 @@ def ocr_page(
         if region.confidence < DISCARD_CONFIDENCE:
             stats.discarded_regions += 1
             continue
-        obj = _region_to_object(region, scale=scale, page=page, index=i)
+        obj = _region_to_object(
+            region, scale=scale, page=page, index=i, pictures=pictures
+        )
         if obj.bbox.is_degenerate(epsilon=1.0):
             continue
         if any(obj.bbox.overlap_fraction_of_self(r) > ALREADY_READ for r in readable):

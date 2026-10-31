@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from ..analysis.text_angle import Orientation, measure_region
 from ..config import get_settings
@@ -138,6 +138,58 @@ def _skip_image(image: ImageObject, page: Page) -> bool:
     return False
 
 
+# The paper behind the words is found by closing (a grey-level max filter)
+# with a window this share of the picture's shorter side: wider than any
+# letter stroke, narrower than a shaded panel.
+FLATTEN_WINDOW = 0.06
+# How much the paper's brightness must vary across the picture (0-255,
+# 5th to 95th percentile) before a flattened copy is worth a second read.
+FLATTEN_MIN_SPREAD = 30
+
+
+def _with_flattened_read(
+    result: OCRResult, png: bytes, provider: OCRProvider, language: str | None
+) -> OCRResult:
+    """Add the labels a flattened copy of the picture shows that `result` missed.
+
+    Tesseract turns the picture black-and-white with one threshold, so dark
+    words on a gradient, a shaded panel or a texture go with the background
+    and are never read. Dividing the picture by its own paper -- the
+    brightest nearby grey -- evens the background out to white and leaves
+    the words. A plain picture has nothing to even out and is read once.
+    """
+    import cv2
+    import numpy as np
+
+    grey = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_GRAYSCALE)
+    if grey is None:
+        return result
+    # The paper is found on a quarter-size copy: closing at full size with a
+    # window this wide is slow, and the paper varies slowly anyway.
+    small = cv2.resize(grey, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
+    k = max(3, int(min(small.shape) * FLATTEN_WINDOW) | 1)
+    paper = cv2.morphologyEx(small, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    lo, hi = np.percentile(paper, (5, 95))
+    if hi - lo < FLATTEN_MIN_SPREAD:
+        return result
+    paper = cv2.resize(paper, (grey.shape[1], grey.shape[0]), interpolation=cv2.INTER_LINEAR)
+    flat = np.clip(grey.astype(np.float32) / np.maximum(paper, 1) * 255, 0, 255).astype(np.uint8)
+
+    second = provider.recognize(cv2.imencode(".png", flat)[1].tobytes(),
+                                language=language, sparse=True)
+    if second.error:
+        return result
+
+    def overlaps(a, b) -> bool:
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+    found = [r.bbox for r in result.regions]
+    extra = [r for r in second.regions if not any(overlaps(r.bbox, f) for f in found)]
+    if not extra:
+        return result
+    return replace(result, regions=[*result.regions, *extra])
+
+
 def extract_image_text(
     doc: OpenDocument,
     page: Page,
@@ -199,6 +251,7 @@ def extract_image_text(
             result = provider.recognize(png, language=language, sparse=True)
             # A failed read is not remembered, so the next copy tries again.
             if not result.error:
+                result = _with_flattened_read(result, png, provider, language)
                 cache[key] = result
         if result.error:
             del png

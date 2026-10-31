@@ -165,6 +165,27 @@ LINE_ENDS: tuple[str, ...] = (
 _SQRT2 = math.sqrt(2.0)
 
 
+def grown_erase_margin(box) -> float:
+    """The grown erase margin for a hand-lettered word's box (see erase_margin)."""
+    return max(0.6, 0.06 * box.height)
+
+
+def erase_margin(obj, box) -> float:
+    """How far past a word's box its original is painted over, in points.
+
+    0.6 is right for scanned body text. Hand lettering on a Word picture page
+    is ~100-250pt tall and its strokes and soft edges overshoot the reader's
+    word box by several points, so slivers of it survived the 0.6. A fill_box
+    label the builder marked obj.erase_grown (plain 2.5pt ring, and every pixel
+    of the band out to that margin background) is erased max(0.6, 6% of the
+    box height) out; any other label keeps 0.6. Shared with the
+    copy back into the Word picture (pipeline/word_pictures.py), so the two
+    cannot drift."""
+    if getattr(obj, "fill_box", False) and getattr(obj, "erase_grown", False):
+        return grown_erase_margin(box)
+    return 0.6
+
+
 def is_line(shape: str | None) -> bool:
     """A line or a curve: drawn as a stroke with ends, never filled, no words."""
     return shape in LINES

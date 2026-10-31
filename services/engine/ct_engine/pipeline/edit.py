@@ -2001,9 +2001,16 @@ def correct_source(manifest, page_number, object_id, text, *, store, target_lang
     obj.approved_source_text = cleaned
     obj.keep_original = False
     if translated is not None:
-        obj.translated_text = translated.text
-        obj.machine_translated_text = translated.text
-        _forget_translation_only(obj, translated.text)
+        text = translated.text
+        if obj.fill_box:
+            # A Word picture's lettering in capitals keeps them, as when
+            # it was first translated (see pipeline/translate.py).
+            from .translate import match_capitals
+
+            text = match_capitals(cleaned, text)
+        obj.translated_text = text
+        obj.machine_translated_text = text
+        _forget_translation_only(obj, text)
         obj.translation_status = TranslationStatus.TRANSLATED
     result = _rerender(manifest, page, obj, store=store, target_lang=target_lang)
     if obj.manually_edited:

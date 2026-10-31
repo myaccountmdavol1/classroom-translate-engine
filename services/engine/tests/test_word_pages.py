@@ -137,3 +137,82 @@ def test_a_translated_picture_replaces_the_word_picture_it_came_from():
     with zipfile.ZipFile(io.BytesIO(out)) as z:
         assert Image.open(io.BytesIO(z.read("word/media/image2.tmp"))).size == (400, 200)
         assert z.read("word/media/image1.tmp") == png(dialog)
+
+
+def _book(count):
+    """A Word file with `count` pictures, the page's copy of each, and a
+    translated PDF with one picture per page -- a long book, small."""
+    import io
+    import zipfile
+    from types import SimpleNamespace
+
+    import fitz
+    from PIL import Image, ImageDraw
+
+    def picture(i):
+        img = Image.new("RGB", (200, 100), (40 * i % 256, 90, 200 - 30 * i % 200))
+        ImageDraw.Draw(img).rectangle([10 + 15 * i, 10, 40 + 15 * i, 60], fill="black")
+        return img
+
+    def png(img):
+        buf = io.BytesIO()
+        img.save(buf, "PNG")
+        return buf.getvalue()
+
+    docx = io.BytesIO()
+    with zipfile.ZipFile(docx, "w") as z:
+        z.writestr("word/document.xml", "<w:document/>")
+        for i in range(count):
+            z.writestr(f"word/media/image{i + 1}.png", png(picture(i)))
+    pdf = fitz.open()
+    pages = []
+    for i in range(count):
+        box = Rect(x0=100, y0=100, x1=300, y1=200)
+        pdf.new_page().insert_image(fitz.Rect(*box.as_tuple()), stream=png(picture(i)))
+        image = SimpleNamespace(bbox=box, asset_key=f"pictures/{i}.png")
+        pages.append(SimpleNamespace(number=i + 1, index=i, image_objects=[image],
+                                     text_objects=[]))
+    asked: list[str] = []
+    store = SimpleNamespace(
+        get_bytes=lambda key: (asked.append(key), png(picture(int(key[9:-4]))))[1],
+    )
+    return docx.getvalue(), pdf.tobytes(), SimpleNamespace(pages=pages), store, asked
+
+
+def test_a_long_book_makes_its_translated_pictures_one_at_a_time(monkeypatch):
+    """The browser engine has little memory: a 36-picture book crashed it
+    when every picture was made before any went into the file."""
+    from ct_engine.pipeline import word_pictures
+
+    _, pdf, manifest, store, asked = _book(3)
+    monkeypatch.setattr(word_pictures, "_labels_in", lambda page, image: [image.bbox])
+    pictures = word_pictures.translated_pictures(manifest, pdf, store)
+    assert asked == []
+    page_number, original, translated = next(pictures)
+    assert (page_number, asked) == (1, ["pictures/0.png"])
+    assert translated.width > original.width
+    assert [p for p, _, _ in pictures] == [2, 3]
+    assert asked == [f"pictures/{i}.png" for i in range(3)]
+
+
+def test_pictures_go_into_the_file_as_they_come(monkeypatch):
+    import io
+    import zipfile
+
+    from ct_engine.pipeline import word_pictures
+
+    docx, pdf, manifest, store, _ = _book(3)
+    monkeypatch.setattr(word_pictures, "_labels_in", lambda page, image: [image.bbox])
+    out, stats = word_pictures.replace_pictures(
+        docx, word_pictures.translated_pictures(manifest, pdf, store),
+    )
+    assert stats.translated == 3 and stats.unmatched == 0 and stats.kept_pages == []
+    assert stats.names == ["image1.png", "image2.png", "image3.png"]
+    with zipfile.ZipFile(io.BytesIO(docx)) as before, zipfile.ZipFile(io.BytesIO(out)) as after:
+        assert after.namelist() == before.namelist()
+        assert after.read("word/document.xml") == before.read("word/document.xml")
+        for name in stats.names:
+            from PIL import Image
+
+            new = Image.open(io.BytesIO(after.read(f"word/media/{name}")))
+            assert new.format == "PNG" and new.size == (556, 278)

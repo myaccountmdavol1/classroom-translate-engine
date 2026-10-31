@@ -42,7 +42,13 @@ def preview_repair(manifest, number, object_id, *, store, target_lang):
             raise EditError('We could not translate this section. Check the original wording and try again.') from exc
         if not result.protected_intact:
             raise EditError('A number or formula could not be kept. Check the original wording first.')
-        obj.translated_text = obj.machine_translated_text = result.text
+        text = result.text
+        if obj.fill_box:
+            # A Word picture's lettering in capitals keeps them (see
+            # pipeline/translate.py).
+            from .translate import match_capitals
+            text = match_capitals(obj.flat_text, text)
+        obj.translated_text = obj.machine_translated_text = text
         obj.translation_only_text = None
         obj.translation_status = TranslationStatus.TRANSLATED
     with fitz.open(stream=store.get_bytes(manifest.source_key), filetype='pdf') as pdf:

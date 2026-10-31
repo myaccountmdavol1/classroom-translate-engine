@@ -47,6 +47,7 @@ from .fitting import (
     wrap_rows,
     wrap_with_ends,
 )
+from .erase import erase_letters
 from .lists import MarkerFonts, NUMBER_CHANGED, drawable_marker, marker_visual, plan_paragraphs
 from .reflow import ReflowPlan, plan_reflow
 from . import shapes as shape_geo
@@ -99,6 +100,66 @@ class PageBuildStats:
 #     artwork is underneath. Never damage a diagram to replace a label
 #     (spec sec. 19).
 BACKGROUND_UNIFORMITY_LIMIT = 34.0  # max per-channel std-dev, 0-255
+
+
+def band_is_plain(pdf_page: "fitz.Page", rect: Rect, pad: float) -> bool:
+    """True when the band from `rect` out to `pad` points beyond it holds
+    nothing but background and the overshoot of the word's own strokes.
+
+    The whole band is looked at, not just its outer edge, and by worst pixel
+    rather than standard deviation (a thin line is a tiny share of a large
+    band and would pass that): a pixel is ink when it differs from the band's
+    median by more than BACKGROUND_UNIFORMITY_LIMIT in any channel. Ink in
+    the band that joins the ink inside the box is the lettering running past
+    the reader's box, and is what the grown erase is for; ink that does not
+    is artwork, and refuses the band. The box (and 0.6pt around it, always
+    erased) is the inside.
+    """
+    import math
+
+    import numpy as np
+
+    probe = fitz.Rect(
+        rect.x0 - pad, rect.y0 - pad, rect.x1 + pad, rect.y1 + pad
+    ) & pdf_page.rect
+    if probe.is_empty or probe.width < 2 or probe.height < 2:
+        return False
+    try:
+        pix = pdf_page.get_pixmap(clip=probe, dpi=72, alpha=False)
+        arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+            pix.height, pix.width, pix.n
+        )[:, :, :3].astype(np.int16)
+    except Exception:
+        return False
+    inside = np.zeros(arr.shape[:2], dtype=bool)
+    x0 = max(0, math.floor(rect.x0 - 0.6 - probe.x0))
+    x1 = min(arr.shape[1], math.ceil(rect.x1 + 0.6 - probe.x0))
+    y0 = max(0, math.floor(rect.y0 - 0.6 - probe.y0))
+    y1 = min(arr.shape[0], math.ceil(rect.y1 + 0.6 - probe.y0))
+    inside[y0:y1, x0:x1] = True
+    if inside.all():
+        return False
+    median = np.median(arr[~inside], axis=0)
+    ink = np.any(np.abs(arr - median) > BACKGROUND_UNIFORMITY_LIMIT, axis=2)
+    # Grow outward from the ink inside the box, through ink only.
+    reached = ink & inside
+    for _ in range(600):
+        grown = reached.copy()
+        grown[1:, :] |= reached[:-1, :]
+        grown[:-1, :] |= reached[1:, :]
+        grown[:, 1:] |= reached[:, :-1]
+        grown[:, :-1] |= reached[:, 1:]
+        grown[1:, 1:] |= reached[:-1, :-1]
+        grown[:-1, :-1] |= reached[1:, 1:]
+        grown[1:, :-1] |= reached[:-1, 1:]
+        grown[:-1, 1:] |= reached[1:, :-1]
+        grown &= ink
+        if (grown == reached).all():
+            break
+        reached = grown
+    else:
+        return False
+    return not bool((ink & ~reached).any())
 
 
 def estimate_background(
@@ -298,6 +359,7 @@ def uniform_growth_right(
     artwork is protected.
     """
     grown = 0.0
+    last = None
     while grown + step <= limit:
         probe = Rect(
             x0=rect.x1 + grown,
@@ -310,8 +372,20 @@ def uniform_growth_right(
         color, _ = estimate_background(pdf_page, probe, pad=0.0)
         if color is None:
             break
+        # Each step plain on its own is not enough: off the end of a pink
+        # label onto beige, every step was plain and the words ran across
+        # the label's edge. A gradient changes a little per step; an edge
+        # jumps.
+        if last is not None and max(abs(a - b) for a, b in zip(color, last)) > EDGE_JUMP:
+            break
+        last = color
         grown += step
     return grown
+
+
+# A change in background colour between two growth steps (0-1) that marks
+# the edge of a panel rather than a gradient across it.
+EDGE_JUMP = 0.06
 
 
 
@@ -866,6 +940,54 @@ def _native_turn(t) -> OrientedBox | None:
     return OrientedBox(cx=cx, cy=cy, width=w, height=h, angle=angle)
 
 
+# A picture label's box is its ink: for "Producers" the capitals' tops to the
+# baseline, for "agua" the x-height down to the tail of the g. These are the
+# shares of the font size each part takes in an ordinary typeface.
+LABEL_TALL = 0.73  # capitals, digits and ascenders above the baseline
+LABEL_SHORT = 0.52  # the x-height, when the word has nothing taller
+LABEL_DESCENT = 0.21  # g, j, p, q, y below it
+_TALL = set("bdfhiklt0123456789()[]{}|/")
+# Brackets reach below the baseline as far as a g does ("Time (hours)").
+_DESCENDING = set("gjpqy()[]{}|")
+# Strokes thicker than this share of the font size are bold: ordinary sans
+# measures about 0.08, its bold about 0.12.
+BOLD_STROKE = 0.10
+
+
+def _label_lettering(text: str, height: float) -> tuple[float, float]:
+    """(font size, descent share) of a picture label whose ink is `height` tall."""
+    marks = [c for c in text if not c.isspace()]
+    tall = not marks or any(c.isupper() or c in _TALL for c in marks)
+    descent = LABEL_DESCENT if any(c in _DESCENDING for c in marks) else 0.0
+    return height / ((LABEL_TALL if tall else LABEL_SHORT) + descent), descent
+
+
+def _label_em_box(obj) -> tuple[float, Rect]:
+    """A level picture label's font size, and the box that puts the
+    translation's baseline on the original's.
+
+    The label's box is its ink, which for a word with no descenders is
+    about three quarters of the font size: sized from it, "Producers" came
+    out a quarter too small and sat too high. The box returned runs from
+    one ascent above the baseline to a full line below that top.
+    """
+    b = obj.bbox
+    size, descent = _label_lettering(obj.flat_text, b.height)
+    baseline = b.y1 - descent * size
+    top = baseline - ASCENT_RATIO * size
+    return size, Rect(x0=b.x0, y0=top, x1=b.x1, y1=max(b.y1, top + size * DEFAULT_LEADING))
+
+
+def _word_boxes(obj) -> list[Rect]:
+    """A recognised block's word boxes, plus the unreadable glyphs the OCR
+    engine located but could not transcribe; the block's box if it has none."""
+    boxes = [
+        span.bbox for line in obj.lines for span in line.spans if span.text.strip()
+    ]
+    boxes.extend(obj.cover_boxes)
+    return boxes or [obj.bbox]
+
+
 def estimate_ink_color(
     pdf_page: "fitz.Page",
     rect: Rect,
@@ -1288,6 +1410,9 @@ def rebuild_page(
         ]
     ]
 
+    # Set again below for the labels that qualify; never left from a past build.
+    for t in page.text_objects:
+        t.erase_grown = False
     for obj in list(raster):
         if (
             obj.source is TextSource.IMAGE_OCR
@@ -1303,10 +1428,21 @@ def rebuild_page(
         # Tilted words are judged, covered and colour-sampled by their
         # turned box: their upright box holds the artwork they pass over.
         ob = obj.oriented
+        obj.erase_grown = False
         if ob is not None:
             color, spread = estimate_background_quad(pdf_page, ob)
         else:
             color, spread = estimate_background(pdf_page, obj.bbox)
+            if color is not None and obj.fill_box:
+                # Words on a Word picture page are erased past their box by
+                # erase_margin. That is allowed only when the 2.5pt ring
+                # above was plain (as for every label) AND every pixel in the
+                # whole band out to the margin is background: artwork anywhere
+                # in it would be painted over and copied into the picture.
+                # Turned labels (the branch above) keep the 0.6pt erase.
+                obj.erase_grown = band_is_plain(
+                    pdf_page, obj.bbox, shape_geo.grown_erase_margin(obj.bbox)
+                )
             if color is None:
                 color = estimate_scanned_background(pdf_page, obj.bbox, recognised)
         if color is None and obj.retry_background:
@@ -1317,6 +1453,22 @@ def rebuild_page(
             # and the translation sits on it -- real packet, "Solve" and
             # "Check" underlined, which kept the English on the page.
             color = _color_tuple(obj.manual_fill)
+        if ob is None and obj.source is TextSource.IMAGE_OCR and not obj.manual_fill:
+            # A picture label: erase just its letters and fill them from the
+            # picture around them. On a shaded or photo background no flat
+            # patch matches; on a gradient the "plain" patch shows its edges;
+            # and lines through the box survive. Refused (None) when other
+            # ink is too close -- then the flat patch below, as before.
+            erased = erase_letters(pdf_page, _word_boxes(obj))
+            if erased is not None:
+                obj.background_color = _hex(color) if color is not None else None
+                obj.erase_grown = False
+                raster_ink[obj.id] = ensure_contrast(erased.ink, erased.background)
+                size, _ = _label_lettering(obj.flat_text, obj.bbox.height)
+                if erased.stroke > BOLD_STROKE * size and not obj.style.bold:
+                    obj.style = obj.style.model_copy(update={"bold": True})
+                stats.covered += 1
+                continue
         # Recorded so the editor can patch this block with the right colour
         # while a person is typing into it.
         obj.background_color = _hex(color) if color is not None else None
@@ -1352,12 +1504,7 @@ def rebuild_page(
         # Paint per word, not per line: the gaps between words on a scan are
         # blank paper, and on a header row they are the student's answer
         # blanks, which a line-wide patch would erase.
-        boxes = [
-            span.bbox for line in obj.lines for span in line.spans if span.text.strip()
-        ]
-        # Unreadable glyphs the OCR engine located but could not transcribe.
-        boxes.extend(obj.cover_boxes)
-        boxes = boxes or [obj.bbox]
+        boxes = _word_boxes(obj)
         # Measure the glyph colour while it is still on the page.
         sampled = estimate_ink_color(pdf_page, obj.bbox, color)
         if sampled is not None:
@@ -1365,7 +1512,9 @@ def rebuild_page(
 
         painted = 0
         for box in boxes:
-            rect = fitz.Rect(*box.expanded(0.6).as_tuple()) & pdf_page.rect
+            rect = fitz.Rect(
+                *box.expanded(shape_geo.erase_margin(obj, box)).as_tuple()
+            ) & pdf_page.rect
             if rect.is_empty:
                 continue
             pdf_page.draw_rect(rect, color=None, fill=color, width=0)
@@ -1505,6 +1654,11 @@ def rebuild_page(
             growth = 0.0
         else:
             turns.pop(obj.id, None)
+            if (
+                obj.source is TextSource.IMAGE_OCR and not placed
+                and not obj.manual_font_size
+            ):
+                base_size, source_box = _label_em_box(obj)
 
         # A label inside a picture has no neighbouring objects to bound it,
         # and growing DOWNWARD there covers artwork the obstacle test cannot
@@ -1518,6 +1672,12 @@ def rebuild_page(
                 raster_widen = 0.0 if placed else uniform_growth_along(pdf_page, frame)
             else:
                 raster_widen = uniform_growth_right(pdf_page, obj.bbox)
+        elif obj.fill_box:
+            # Words read from a Word picture page come back as OCR, not
+            # IMAGE_OCR, but sit in a picture just the same: grown downward,
+            # "EL SEPTIEMBRE PASADO" ran 31pt into the artwork below and was
+            # painted into the Word picture. Sized to its box instead.
+            growth = 0.0
 
         if obj.manual_font_size:
             base_size = obj.manual_font_size
@@ -1592,18 +1752,34 @@ def rebuild_page(
             leading=ratio,
             **lists,
         )
+        if obj.fill_box and not fit.fits:
+            # Lettering in a Word picture starts at its own size, about the
+            # height of its one-line box, and fit_text shrinks only so far
+            # (HARD_SHRINK_FLOOR) before giving up: a translation needing a
+            # second line ("EL SEPTIEMBRE PASADO") ran past the picture. So
+            # take the largest size at which it fills the box, wrapping, as
+            # Fit does for a box she sizes. A translation that already fits
+            # keeps fit_text's answer, which is never smaller.
+            fit = fit_to_box(
+                text, box, rfont, max_size=base_size,
+                leading=ratio or DEFAULT_LEADING, **lists,
+            )
         if placed:
             return text, rfont, font, box, fit
 
         upright_text = obj.source is not TextSource.IMAGE_OCR and frame is None
+        # A label in a Word picture page never widens: the space beside it
+        # is the picture, which its words are painted into.
         room_right = (
             available_growth_right(obj.bbox, page.bounds, obstacles, right_margin=text_margin)
-            if upright_text else 0.0
+            if upright_text and not obj.fill_box else 0.0
         )
         # Told to the editor (see TextObject.widen_x1), needed or not.
         obj.widen_x1 = round(box.x1 + room_right, 2) if room_right > 4.0 else None
         if not fit.fits or fit.shrink_ratio < 1.0 or len(fit.lines) > 1:
             extra_width = room_right if upright_text else raster_widen
+            if obj.fill_box:
+                extra_width = 0.0
             if extra_width > 4.0:
                 widened = Rect(
                     x0=box.x0, y0=box.y0, x1=box.x1 + extra_width, y1=box.y1
@@ -1618,12 +1794,28 @@ def rebuild_page(
                     leading=ratio,
                     **lists,
                 )
+                if not wider.fits and obj.source is TextSource.IMAGE_OCR:
+                    # As in its own box above: the largest size that fills
+                    # the wider one, rather than giving the room up.
+                    wider = fit_to_box(
+                        text, widened, rfont, max_size=base_size,
+                        leading=ratio or DEFAULT_LEADING, **lists,
+                    )
                 if wider.fits and (
                     wider.shrink_ratio >= fit.shrink_ratio
+                    or wider.font_size > fit.font_size
                     or len(wider.lines) < len(fit.lines)
                 ):
                     box, fit = widened, wider
                     fit.notes.append("text box widened into empty space")
+        if obj.source is TextSource.IMAGE_OCR and not fit.fits:
+            # A picture label is sized from its printed letters, and its box
+            # can't grow down into the artwork: the largest size that fills
+            # the box (widened, where there was room), not an overflow.
+            fit = fit_to_box(
+                text, box, rfont, max_size=base_size,
+                leading=ratio or DEFAULT_LEADING, **lists,
+            )
         return text, rfont, font, box, fit
 
     manual_ids = {

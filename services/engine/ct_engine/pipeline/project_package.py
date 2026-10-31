@@ -20,7 +20,12 @@ MAX_PACKAGE_BYTES = 200 * 1024 * 1024
 def export_project(document_id, store):
     out = io.BytesIO()
     prefix = K.doc_prefix(document_id) + "/"
-    asset_keys = [key for key in store.list_prefix(prefix) if "/repair-proposals/" not in key]
+    # The finished Word file the job stored (and its record) is left out:
+    # it is rebuilt for the imported copy, which has its own keys.
+    asset_keys = [
+        key for key in store.list_prefix(prefix)
+        if "/repair-proposals/" not in key and "/export/word-final-" not in key
+    ]
     if len(asset_keys) > 9999 or sum(store.size(key) for key in asset_keys) > MAX_PACKAGE_BYTES - 1024:
         raise ValueError("This project is too large to save as one package. Download the translated document instead.")
     with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:

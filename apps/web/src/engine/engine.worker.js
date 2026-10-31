@@ -526,6 +526,24 @@ function die(e) {
   requests.length = 0;
   post({ type: "fatal", message: String((e && e.message) || e).split("\n").slice(-3).join(" ").slice(0, 500) });
 }
+// A fatal error can also come up outside every try below. A request is a
+// Python coroutine (ct_browser/boot.py handle), which Pyodide's event loop
+// steps on in callbacks of its own; a WebAssembly trap in one of those
+// steps is thrown there, the promise the request awaits never settles, and
+// nothing told the host, so the page waited for ever (a Word download that
+// stayed "Finishing" after "memory access out of bounds"). Caught here, the
+// host hears of it as of any other fatal error, answers every request it
+// gave this worker, and starts a fresh one.
+self.addEventListener("error", (ev) => {
+  if (!isFatal(ev.error)) return;
+  ev.preventDefault();
+  die(ev.error);
+});
+self.addEventListener("unhandledrejection", (ev) => {
+  if (!isFatal(ev.reason)) return;
+  ev.preventDefault();
+  die(ev.reason);
+});
 
 async function runRequest(req) {
   try {

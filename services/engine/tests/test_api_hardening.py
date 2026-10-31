@@ -106,18 +106,36 @@ def _without_media(data: bytes) -> bytes:
     return out.getvalue()
 
 
+def _docx_with_a_gif() -> bytes:
+    from docx import Document
+    from PIL import Image
+
+    pic = io.BytesIO()
+    Image.new("RGB", (120, 120), "green").save(pic, "GIF")
+    pic.seek(0)
+    d = Document()
+    d.add_paragraph("Label the parts of the cell.")
+    d.add_picture(pic)
+    out = io.BytesIO()
+    d.save(out)
+    return out.getvalue()
+
+
 def test_office_pictures_left_untranslated_are_reported(client, monkeypatch):
     from ct_engine.ingest import word_render
 
     monkeypatch.setattr(word_render, "can_render_word", lambda: False)
-    # The corpus worksheet holds a picture.
+    # A GIF is not read, so this picture stays as it is.
     r = client.post(
         "/api/documents",
-        files={"file": ("lesson.docx", corpus_file("20_worksheet.docx"), DOCX)},
+        files={"file": ("lesson.docx", _docx_with_a_gif(), DOCX)},
     )
     assert r.status_code == 200, r.text
     warning = next(w for w in r.json()["warnings"] if "pictures" in w)
     assert "will not be translated" in warning
+    # Said the same in the browser, where there is no server at all.
+    assert "server" not in warning.lower()
+    assert "save it as a PDF" in warning
 
     # Still there after analysis has rebuilt the document's summary.
     doc_id = r.json()["document_id"]
@@ -129,6 +147,8 @@ def test_office_pictures_left_untranslated_are_reported(client, monkeypatch):
         time.sleep(0.05)
     doc = client.get(f"/api/documents/{doc_id}").json()
     assert warning in doc["analysis"]["warnings"]
+    report = client.get(f"/api/documents/{doc_id}/report").json()
+    assert "server" not in report["embedded_image_text"].lower()
 
 
 def test_picture_check_looks_for_media_in_the_package():

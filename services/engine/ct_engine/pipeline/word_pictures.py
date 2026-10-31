@@ -28,8 +28,9 @@ from dataclasses import dataclass, field
 from ..model.enums import TextSource
 from ..model.geometry import Rect
 from ..model.objects import grow_quad
-from ..reconstruct.shapes import layout_ink_reach as ink_reach
+from ..reconstruct.shapes import erase_margin, layout_ink_reach as ink_reach
 from ..util.logging import get_logger
+from ..util.memory import release_page_memory
 
 log = get_logger(__name__)
 
@@ -109,7 +110,12 @@ def _labels_in(page, image):
             boxes += [s.bbox for line in t.lines for s in line.spans]
             # A little past each box, so the seam of the copied patch falls
             # on plain background rather than leaving a hairline at its edge.
-            areas.extend(b.expanded(2.5) for b in boxes)
+            # A hand-lettered word was erased well past its box (erase_margin),
+            # so the copy goes that much further, to land on plain background.
+            areas.extend(
+                b.expanded(2.5 if not t.erase_grown else 2.5 + erase_margin(t, b))
+                for b in boxes
+            )
         if layout is not None and layout.quad:
             # Drawn turned (along the tilt, or by her): the turned frame.
             areas.append(grow_quad(layout.quad, reach))
@@ -175,14 +181,15 @@ def pages_with_labelled_pictures(manifest) -> list[int]:
 
 
 def translated_pictures(manifest, translated_pdf: bytes, store):
-    """[(page number, original picture, translated picture)] for each picture
-    with labels. The translated picture is None when it cannot be made, and
-    the original None when it could not be opened: both are kept as they
-    are, and reported."""
-    import fitz
-    from PIL import Image, ImageDraw
+    """(page number, original picture, translated picture) for each picture
+    with labels, made one at a time as they are asked for. The translated
+    picture is None when it cannot be made, and the original None when it
+    could not be opened: both are kept as they are, and reported.
 
-    out = []
+    One at a time because the browser engine has little memory: a long
+    book's pictures, all made before any went into the file, did not fit."""
+    import fitz
+
     pdf = fitz.open(stream=translated_pdf, filetype="pdf")
     try:
         for page in manifest.pages:
@@ -190,57 +197,70 @@ def translated_pictures(manifest, translated_pdf: bytes, store):
                 areas = _labels_in(page, image)
                 if not areas or not image.asset_key:
                     continue
-                try:
-                    original = Image.open(io.BytesIO(store.get_bytes(image.asset_key)))
-                    original.load()
-                except Exception as exc:
-                    log.warning(
-                        "Picture on page %s could not be opened: %r", page.number, exc
-                    )
-                    out.append((page.number, None, None))
-                    continue
-                box = image.bbox
-                width = max(original.width, round(box.width / 72 * OUTPUT_DPI))
-                height = round(width * box.height / box.width)
-                if abs(original.width / original.height - box.width / box.height) > MATCH_ASPECT * (box.width / box.height):
-                    out.append((page.number, original, None))  # cropped in Word
-                    continue
-                clip = fitz.Rect(*box.as_tuple())
-                zoom = width / box.width
-                pix = pdf[page.index].get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
-                finished = Image.frombytes("RGB", (pix.width, pix.height), pix.samples).resize((width, height))
-                base = original.convert("RGB").resize((width, height), Image.LANCZOS)
-                mask = Image.new("L", (width, height), 0)
-                draw = ImageDraw.Draw(mask)
-                for a in areas:
-                    if isinstance(a, list):
-                        draw.polygon(
-                            [((x - box.x0) * zoom, (y - box.y0) * zoom) for x, y in a],
-                            fill=255,
-                        )
-                        continue
-                    draw.rectangle(
-                        [(a.x0 - box.x0) * zoom, (a.y0 - box.y0) * zoom,
-                         (a.x1 - box.x0) * zoom, (a.y1 - box.y0) * zoom],
-                        fill=255,
-                    )
-                base.paste(finished, (0, 0), mask)
-                out.append((page.number, original, base))
+                # Made in a function of its own, so nothing of this picture
+                # is still held here while the next one is made.
+                yield _translated_picture(pdf, page, image, areas, store)
     finally:
         pdf.close()
-    return out
+
+
+def _translated_picture(pdf, page, image, areas, store):
+    """One (page number, original, translated) of translated_pictures."""
+    import fitz
+    from PIL import Image, ImageDraw
+
+    try:
+        original = Image.open(io.BytesIO(store.get_bytes(image.asset_key)))
+        original.load()
+    except Exception as exc:
+        log.warning("Picture on page %s could not be opened: %r", page.number, exc)
+        return (page.number, None, None)
+    box = image.bbox
+    width = max(original.width, round(box.width / 72 * OUTPUT_DPI))
+    height = round(width * box.height / box.width)
+    if abs(original.width / original.height - box.width / box.height) > MATCH_ASPECT * (box.width / box.height):
+        return (page.number, original, None)  # cropped in Word
+    clip = fitz.Rect(*box.as_tuple())
+    zoom = width / box.width
+    pix = pdf[page.index].get_pixmap(matrix=fitz.Matrix(zoom, zoom), clip=clip, alpha=False)
+    finished = Image.frombytes("RGB", (pix.width, pix.height), pix.samples).resize((width, height))
+    # MuPDF keeps each picture it decoded for the page: dropped, so a long
+    # book's pages do not pile up while its pictures are made.
+    del pix
+    release_page_memory()
+    base = original.convert("RGB").resize((width, height), Image.LANCZOS)
+    mask = Image.new("L", (width, height), 0)
+    draw = ImageDraw.Draw(mask)
+    for a in areas:
+        if isinstance(a, list):
+            draw.polygon(
+                [((x - box.x0) * zoom, (y - box.y0) * zoom) for x, y in a],
+                fill=255,
+            )
+            continue
+        draw.rectangle(
+            [(a.x0 - box.x0) * zoom, (a.y0 - box.y0) * zoom,
+             (a.x1 - box.x0) * zoom, (a.y1 - box.y0) * zoom],
+            fill=255,
+        )
+    base.paste(finished, (0, 0), mask)
+    return (page.number, original, base)
 
 
 def replace_pictures(docx: bytes, pictures) -> tuple[bytes, PictureStats]:
     """The .docx with each matched picture swapped for its translation.
 
     `pictures` holds (page number, original, translated) triples, or
-    (original, translated) pairs when no page is known.
+    (original, translated) pairs when no page is known: a list, or an
+    iterator such as translated_pictures, taken one picture at a time.
     """
     from PIL import Image
 
     stats = PictureStats()
     zin = zipfile.ZipFile(io.BytesIO(docx))
+    # For each picture in the file only what matching needs -- its size,
+    # format and small thumbnail -- not the decoded picture: a long book's
+    # pictures, all decoded at once, did not fit in the browser's memory.
     media = {}
     for name in zin.namelist():
         # word/media/ in a .docx, ppt/media/ in a .pptx.
@@ -251,41 +271,15 @@ def replace_pictures(docx: bytes, pictures) -> tuple[bytes, PictureStats]:
             img.load()
         except Exception:
             continue
-        media[name] = (img, _thumb(img))
+        with img:
+            media[name] = (img.width, img.height, img.format, _thumb(img))
 
+    # Each translation is kept only as the bytes written into the file.
     replacement: dict[str, bytes] = {}
     for item in pictures:
-        page_number = item[0] if len(item) == 3 else None
-        original, translated = item[-2], item[-1]
-        if original is None or translated is None:
-            stats.keep(page_number)
-            continue
-        want = _thumb(original)
-        aspect = original.width / original.height
-        best, best_diff = None, MATCH_DIFFERENCE
-        for name, (img, thumb) in media.items():
-            if name in replacement or abs(img.width / img.height - aspect) > MATCH_ASPECT * aspect:
-                continue
-            diff = _difference(want, thumb)
-            if diff < best_diff:
-                best, best_diff = name, diff
-        if best is None:
-            stats.keep(page_number)
-            continue
-        fmt = media[best][0].format
-        if fmt not in ("PNG", "JPEG"):
-            # Written in its own format or not at all: Word reads the file
-            # by its declared type, and a PNG under a .gif name may not open.
-            stats.keep(page_number)
-            continue
-        buf = io.BytesIO()
-        if fmt == "JPEG":
-            translated.save(buf, "JPEG", quality=92)
-        else:
-            translated.save(buf, "PNG", optimize=True)
-        replacement[best] = buf.getvalue()
-        stats.translated += 1
-        stats.names.append(posixpath.basename(best))
+        _replace_one(item, media, replacement, stats)
+        # Let go of this picture before the next one is made.
+        del item
 
     if not replacement:
         return docx, stats
@@ -295,3 +289,38 @@ def replace_pictures(docx: bytes, pictures) -> tuple[bytes, PictureStats]:
             data = replacement.get(info.filename) or zin.read(info.filename)
             zout.writestr(info, data)
     return out.getvalue(), stats
+
+
+def _replace_one(item, media, replacement, stats) -> None:
+    """Match one picture to the file's pictures, and keep its encoded bytes."""
+    page_number = item[0] if len(item) == 3 else None
+    original, translated = item[-2], item[-1]
+    if original is None or translated is None:
+        stats.keep(page_number)
+        return
+    want = _thumb(original)
+    aspect = original.width / original.height
+    best, best_diff = None, MATCH_DIFFERENCE
+    for name, (width, height, _, thumb) in media.items():
+        if name in replacement or abs(width / height - aspect) > MATCH_ASPECT * aspect:
+            continue
+        diff = _difference(want, thumb)
+        if diff < best_diff:
+            best, best_diff = name, diff
+    if best is None:
+        stats.keep(page_number)
+        return
+    fmt = media[best][2]
+    if fmt not in ("PNG", "JPEG"):
+        # Written in its own format or not at all: Word reads the file
+        # by its declared type, and a PNG under a .gif name may not open.
+        stats.keep(page_number)
+        return
+    buf = io.BytesIO()
+    if fmt == "JPEG":
+        translated.save(buf, "JPEG", quality=92)
+    else:
+        translated.save(buf, "PNG", optimize=True)
+    replacement[best] = buf.getvalue()
+    stats.translated += 1
+    stats.names.append(posixpath.basename(best))

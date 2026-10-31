@@ -319,6 +319,11 @@ class TextObject(BaseObject):
     style: TextStyle = Field(default_factory=TextStyle)
     # Mean baseline-to-baseline distance in points; None for single-line blocks.
     line_spacing: float | None = None
+    # A label read from a Word picture page: drawn as large as its box
+    # allows, wrapping if needed, like the lettering it replaces, and in
+    # capitals when that lettering was. False for everything else, so stored
+    # documents load and draw as they always have.
+    fill_box: bool = False
 
     translation_status: TranslationStatus = TranslationStatus.PENDING
     # True when the block must survive translation unchanged (formula, URL,
@@ -373,6 +378,11 @@ class TextObject(BaseObject):
     # is being edited, so a white heading on a dark banner does not turn
     # into black-on-white mid-edit. None until the page has been rebuilt.
     background_color: str | None = None
+    # Set by the builder, fresh each build: True on an upright fill_box label
+    # whose 2.5pt background ring was plain AND whose whole band out to the
+    # grown erase margin (shapes.erase_margin) held only background, so its
+    # words were erased that far. The copy into a Word picture reads it.
+    erase_grown: bool = False
     # Explicitly approved recovery, preserved in projects and undo history.
     retry_background: bool = False
     keep_original: bool = False

@@ -316,6 +316,13 @@ class DocumentManifest(BaseModel):
     )
     # "docx" or "pptx": what `office_source_key` is.
     office_format: str = "docx"
+    # A Word file shown through its pictures (no LibreOffice here): each page
+    # is one picture, read as a picture rather than as a scanned page.
+    office_pictures_only: bool = False
+    # A Word file shown as pages: how many of its paragraphs the translation
+    # job could not translate, which keep their original words in the
+    # download. None before a job has counted them (and for other files).
+    word_paragraphs_kept: int | None = None
     created_at: _dt.datetime = Field(default_factory=_utcnow)
     updated_at: _dt.datetime = Field(default_factory=_utcnow)
 

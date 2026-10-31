@@ -510,3 +510,18 @@ def test_group_move_route_is_not_mistaken_for_a_block_id(client):
     ]
     r = client.post(f"/api/documents/{doc_id}/pages/1/moves", json={"moves": moves})
     assert r.status_code == 200, r.text
+
+
+def test_correcting_a_picture_label_keeps_its_capitals(store, monkeypatch):
+    # Words read from a Word picture in capitals ("MAV", misread) are
+    # corrected to "MAY": the new translation is in capitals too.
+    from ct_engine.pipeline.edit import correct_source
+    from ct_engine.translate.one_off import OneOffTranslation
+    import ct_engine.translate.one_off as one_off
+    manifest = prepared(store)
+    obj = first_editable(manifest)
+    obj.fill_box = True
+    monkeypatch.setattr(one_off, "translate_one", lambda text, **kw: OneOffTranslation(
+        text="Mayo", provider="fixture", protected_intact=True))
+    correct_source(manifest, 1, obj.id, "MAY", store=store, target_lang="es")
+    assert obj.translated_text == "MAYO"

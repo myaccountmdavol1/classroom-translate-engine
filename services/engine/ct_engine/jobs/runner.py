@@ -567,6 +567,7 @@ class JobRunner:
                                     page,
                                     ocr_provider,
                                     language=source_lang,
+                                    pictures=manifest.office_pictures_only,
                                 )
                                 if st.findings:
                                     ocr_findings.setdefault(page.index, []).extend(
@@ -803,6 +804,57 @@ class JobRunner:
             stop_if_cancelled()
             job.stage = JobStage.EXPORTING
             self.manifests.save_job(job)
+
+            if manifest.office_source_key and manifest.office_format == "docx":
+                # A Word file shown as pages is written back into the file
+                # she uploaded at download, where paragraphs the pages cannot
+                # stand in for are translated by themselves. In the browser
+                # the translators are ready only now, during the job; a
+                # download after a reload found none and left the whole
+                # book in English. Once counted here, the download reads
+                # these translations only and calls no translator; one that
+                # failed keeps its words and is counted. A failure never
+                # fails the job: with no count the download translates.
+                manifest.word_paragraphs_kept = None
+                try:
+                    from ..pipeline.word_export import translate_word_paragraphs
+
+                    kept = translate_word_paragraphs(
+                        manifest,
+                        store=self.store,
+                        target_lang=settings.target_language,
+                    )
+                except Exception as exc:
+                    log.warning("Word paragraphs could not be translated: %r", exc)
+                else:
+                    manifest.word_paragraphs_kept = kept
+                    if kept:
+                        job.log(
+                            "warning",
+                            f"{kept} Word paragraph(s) could not be translated "
+                            "and keep their original words.",
+                        )
+                    log.info("Word paragraphs kept in the original: %d", kept)
+                stop_if_cancelled()
+
+                # The finished file is built here and kept, and the download
+                # hands it over. In the browser, building a long book's file
+                # at a download after a reload crashed the engine; here, in
+                # the job, the same work succeeds. A file that could not be
+                # kept never fails the job: the download builds it as before.
+                # A crash while building cannot be caught in the browser; a
+                # resumed job finds the mark it left and skips the build.
+                from ..pipeline.word_export import store_office_export
+
+                store_office_export(
+                    manifest,
+                    store=self.store,
+                    target_lang=settings.target_language,
+                    export_key=export.export_key,
+                    job_id=job.job_id,
+                )
+                release_page_memory()
+                stop_if_cancelled()
 
             # Reopen the export with a reader for that format. This is the
             # last line of defence before a teacher downloads the file: an
