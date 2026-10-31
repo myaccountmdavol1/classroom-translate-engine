@@ -489,10 +489,15 @@ def estimate_ink_color_quad(
     if len(inside) == 0:
         return None
     bg = np.array([c * 255.0 for c in background], dtype=np.int16)
-    ink = inside[np.linalg.norm(inside - bg, axis=1) > 60]
-    if len(ink) / len(inside) < min_ink_fraction:
+    distance = np.linalg.norm(inside - bg, axis=1)
+    ink = distance > 60
+    if ink.mean() < min_ink_fraction:
         return None
-    median = np.median(ink, axis=0)
+    # The letters' cores only: a small turned letter is mostly soft edge,
+    # and with the edges counted white lettering on navy came back a pale
+    # blue-grey and black lettering a mid grey.
+    core = distance >= 0.6 * np.percentile(distance[ink], 98)
+    median = np.median(inside[ink & core], axis=0)
     return (float(median[0]) / 255.0, float(median[1]) / 255.0,
             float(median[2]) / 255.0)
 
@@ -976,6 +981,27 @@ def _label_em_box(obj) -> tuple[float, Rect]:
     baseline = b.y1 - descent * size
     top = baseline - ASCENT_RATIO * size
     return size, Rect(x0=b.x0, y0=top, x1=b.x1, y1=max(b.y1, top + size * DEFAULT_LEADING))
+
+
+def _label_em_frame(obj, angle: float) -> tuple[float, OrientedBox]:
+    """`_label_em_box` for a tilted picture label: its font size, and its
+    turned frame moved and heightened along the slant the same way.
+
+    Sized at 0.92 of the letters' height across the line, as tilted labels
+    were, "Collection Pond" came out a third smaller than its lettering.
+    """
+    ob = obj.oriented
+    size, descent = _label_lettering(obj.flat_text, ob.height)
+    # Across the line, from the frame's centre: down is positive.
+    baseline = ob.height / 2.0 - descent * size
+    top = baseline - ASCENT_RATIO * size
+    bottom = max(ob.height / 2.0, top + size * DEFAULT_LEADING)
+    mid = (top + bottom) / 2.0
+    t = math.radians(angle)
+    return size, ob.model_copy(update={
+        "cx": ob.cx - mid * math.sin(t), "cy": ob.cy + mid * math.cos(t),
+        "height": bottom - top, "angle": angle,
+    })
 
 
 def _word_boxes(obj) -> list[Rect]:
@@ -1636,6 +1662,9 @@ def rebuild_page(
                 w, h = turned_frame(obj.manual_bbox, angle, ob.height)
                 cx, cy = obj.manual_bbox.center
                 frame = OrientedBox(cx=cx, cy=cy, width=w, height=h, angle=angle)
+            elif obj.source is TextSource.IMAGE_OCR:
+                # On the original's baseline, as a level label is.
+                _, frame = _label_em_frame(obj, angle)
             else:
                 frame = ob.model_copy(update={"angle": angle})
         if frame is not None:
@@ -1644,9 +1673,9 @@ def rebuild_page(
                 # guess's size a block read earlier may still carry -- also
                 # once she turns it herself, or drags it (which takes the
                 # slant as her angle), so its size stays where it was.
-                base_size = min(
-                    base_size, round(max(4.0, obj.oriented.height * 0.92), 1)
-                )
+                size, _ = _label_lettering(obj.flat_text, obj.oriented.height)
+                size = round(max(4.0, size), 1)
+                base_size = min(base_size, size) if obj.manual_font_size else size
             source_box = frame.frame()
             turns[obj.id] = (angle, (frame.cx, frame.cy))
             # Room beside or below a turned block runs along the page's
@@ -1959,9 +1988,13 @@ def rebuild_page(
         # across the tablet's screen; left-aligned, its translation covered
         # the left 45% of that and sat over the red letter).
         # A level label she turned herself keeps its own alignment.
+        # A label widened along its line was longer than the printed word,
+        # and the room was added after its end: it starts where the word
+        # did. Centred in the wider frame it drifted right by half the room.
         centred = (
             turn is not None and obj.source is TextSource.IMAGE_OCR
             and obj.oriented is not None and obj.manual_alignment is None
+            and "text box widened into empty space" not in fit.notes
         )
         padx, pady = insets.get(obj.id, (0.0, 0.0))
         align = TextAlignment.CENTER if centred else obj.drawn_alignment

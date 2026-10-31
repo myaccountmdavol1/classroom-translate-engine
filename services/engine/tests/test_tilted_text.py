@@ -24,7 +24,7 @@ from ct_engine.model.enums import TextSource, TranslationStatus
 from ct_engine.model.geometry import Rect
 from ct_engine.pipeline import image_text
 from ct_engine.pipeline.image_text import extract_image_text
-from ct_engine.reconstruct.builder import rebuild_page, turned_frame
+from ct_engine.reconstruct.builder import _label_lettering, rebuild_page, turned_frame
 from tilted_scenes import PICTURE_AT, ScriptedTilt, picture_pdf, region_for, scene, words_box
 
 TEXT = "HARBOR SCHOOL"
@@ -368,9 +368,11 @@ def test_office_pictures_copy_only_the_turned_strip(store):
     zoom = after.width / image.bbox.width
     changed = np.abs(new - base).max(axis=2) > 40
     assert changed.sum() > 100
-    # The upright box's corners hold the frame and the letter: unchanged.
+    # The upright box's corners off the line hold the frame (top right) and
+    # the letter (bottom left): unchanged. The other two are the line's own
+    # ends, where a longer translation may run on along the slant.
     box = label.bbox
-    for x, y in ((box.x0 + 1, box.y0 + 1), (box.x1 - 1, box.y1 - 1)):
+    for x, y in ((box.x1 - 1, box.y0 + 1), (box.x0 + 1, box.y1 - 1)):
         px, py = int((x - image.bbox.x0) * zoom), int((y - image.bbox.y0) * zoom)
         assert not changed[py, px]
 
@@ -486,7 +488,9 @@ def test_the_tilted_labels_corpus_page_reads_each_label_at_its_own_slant():
         return next(t for t in labels if t.flat_text.startswith(prefix))
 
     assert find("Water Cycle").oriented is None
-    for prefix, angle in (("Evaporation", 8), ("Condensation", 15), ("Science Lab", 14)):
+    # White on navy is read too, from the panel turned level by its edges.
+    for prefix, angle in (("Evaporation", 8), ("Condensation", 15), ("Science Lab", 14),
+                          ("Collection Pond", 12)):
         label = find(prefix)
         assert label.oriented is not None, prefix
         assert abs(label.oriented.angle - angle) <= 1.5, prefix
@@ -622,7 +626,8 @@ def test_a_late_slant_on_a_hand_placed_block_keeps_her_box_and_says_so():
     label.manual_rotation = None
     _rebuild(pdf, page)
     assert label.drawn_layout.angle == pytest.approx(label.oriented.angle)
-    assert label.drawn_layout.size <= label.oriented.height
+    size, _ = _label_lettering(label.flat_text, label.oriented.height)
+    assert label.drawn_layout.size <= round(size, 1)
 
 
 def test_a_late_slant_on_an_automatic_block_is_reported():

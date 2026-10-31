@@ -303,7 +303,11 @@ def test_full_translation_round_trip(client):
         assert out.page_count == 1
         text = out[0].get_text()
         assert len(text.strip()) > 50
-        assert len(out[0].get_images()) == 1  # the diagram survived
+        # The diagram survived. Labels erased letter by letter add a small
+        # patch picture each, laid over it.
+        sizes = [(img[2], img[3]) for img in out[0].get_images()]
+        assert (1100, 820) in sizes
+        assert all(w * h < 1100 * 820 / 20 for w, h in sizes if (w, h) != (1100, 820))
     finally:
         out.close()
 

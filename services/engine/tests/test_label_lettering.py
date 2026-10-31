@@ -48,3 +48,29 @@ def test_a_descender_moves_the_baseline_up_from_the_box_bottom():
     size, box = _label_em_box(_Label("energy", ink))
 
     assert box.y0 + ASCENT_RATIO * size == pytest.approx(219.0 - 0.21 * size)
+
+
+class _Tilted:
+    def __init__(self, text, oriented):
+        self.flat_text, self.oriented = text, oriented
+
+
+@pytest.mark.parametrize("angle", [0.0, 12.0, -20.0])
+def test_a_tilted_label_is_sized_and_placed_like_a_level_one(angle):
+    import math
+
+    from ct_engine.model.objects import OrientedBox
+    from ct_engine.reconstruct.builder import _label_em_frame
+
+    ob = OrientedBox(cx=300, cy=400, width=120, height=16, angle=angle)
+    size, frame = _label_em_frame(_Tilted("Collection Pond", ob), angle)
+
+    level, box = _label_em_box(_Label("Collection Pond", Rect(x0=240, y0=392, x1=360, y1=408)))
+    assert size == pytest.approx(level)
+    assert frame.height == pytest.approx(box.height)
+    # The frame moved across the line, never along it, and by as much as
+    # the level box's centre moved down.
+    t = math.radians(angle)
+    dx, dy = frame.cx - ob.cx, frame.cy - ob.cy
+    assert dx * math.cos(t) + dy * math.sin(t) == pytest.approx(0.0, abs=1e-9)
+    assert -dx * math.sin(t) + dy * math.cos(t) == pytest.approx(box.center[1] - 400.0)

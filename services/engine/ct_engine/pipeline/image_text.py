@@ -145,18 +145,52 @@ FLATTEN_WINDOW = 0.06
 # How much the paper's brightness must vary across the picture (0-255,
 # 5th to 95th percentile) before a flattened copy is worth a second read.
 FLATTEN_MIN_SPREAD = 30
+# A dark panel is pixels darker than this (0-255) ...
+PANEL_INK = 110
+# ... joined across gaps narrower than this (inches: wider than a letter's
+# stroke at label sizes, narrower than the white inside a frame) ...
+PANEL_JOIN = 0.05
+# ... at least this share of the picture ...
+PANEL_MIN_AREA = 0.002
+# ... mostly dark (share of the panel) ...
+PANEL_MIN_DARK = 0.6
+# ... with light strokes in it (half-width, pixels): a frame or a solid
+# block has none ...
+PANEL_MIN_STROKE = 1.5
+# ... its dark parts at least this many times thicker than them. Big
+# black lettering joins up into one dark shape too, but its strokes are
+# thinner than the white inside its letters (6.6 against 8.2 pixels); the
+# "Collection Pond" panel is 20 against 4 ...
+PANEL_THICKER = 2.0
+# ... and one flat colour: the middle half of its dark greys within this
+# (0-255). A dark patch of a photograph varies by 8 to 33.
+PANEL_MAX_SPREAD = 6
+# A panel turned further than this is not straightened (degrees).
+PANEL_MAX_TURN = 40.0
+# Panels read on their own, per picture: one read each.
+MAX_PANELS_PER_PICTURE = 6
 
 
-def _with_flattened_read(
-    result: OCRResult, png: bytes, provider: OCRProvider, language: str | None
+def _with_second_read(
+    result: OCRResult, png: bytes, provider: OCRProvider, language: str | None,
+    *, dpi: int = LABEL_OCR_DPI,
 ) -> OCRResult:
-    """Add the labels a flattened copy of the picture shows that `result` missed.
+    """Add the labels `result` missed on shaded backgrounds and dark panels.
 
     Tesseract turns the picture black-and-white with one threshold, so dark
     words on a gradient, a shaded panel or a texture go with the background
     and are never read. Dividing the picture by its own paper -- the
     brightest nearby grey -- evens the background out to white and leaves
-    the words. A plain picture has nothing to even out and is read once.
+    the words.
+
+    White words on a navy panel are lost the other way: the panel is ink to
+    Tesseract, and nothing on it was read ("Collection Pond", on a navy
+    label tilted 12 degrees). Each such panel is cut out, flipped to dark on
+    light, turned level by its own edges and read on its own; flipped in
+    place, the tilted label was still missed by the read of the whole
+    picture.
+
+    A plain picture has nothing to clean up and is read once.
     """
     import cv2
     import numpy as np
@@ -164,30 +198,121 @@ def _with_flattened_read(
     grey = cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_GRAYSCALE)
     if grey is None:
         return result
+
+    def overlaps(a, b) -> bool:
+        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
+
+    regions = list(result.regions)
+    for panel in _lettered_panels(grey, dpi)[:MAX_PANELS_PER_PICTURE]:
+        for r in _read_panel(grey, panel, provider, language):
+            # The panel's own reading replaces a weaker one of the same
+            # words: read as they stand, white on navy came back as
+            # "Collectio, Pong" (0.48) and was thrown away.
+            rivals = [f for f in regions if overlaps(r.bbox, f.bbox)]
+            if all(f.confidence < r.confidence for f in rivals):
+                regions = [f for f in regions if f not in rivals] + [r]
+    extra: list[OCRRegion] = []
+
     # The paper is found on a quarter-size copy: closing at full size with a
     # window this wide is slow, and the paper varies slowly anyway.
     small = cv2.resize(grey, None, fx=0.25, fy=0.25, interpolation=cv2.INTER_AREA)
     k = max(3, int(min(small.shape) * FLATTEN_WINDOW) | 1)
     paper = cv2.morphologyEx(small, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
     lo, hi = np.percentile(paper, (5, 95))
-    if hi - lo < FLATTEN_MIN_SPREAD:
-        return result
-    paper = cv2.resize(paper, (grey.shape[1], grey.shape[0]), interpolation=cv2.INTER_LINEAR)
-    flat = np.clip(grey.astype(np.float32) / np.maximum(paper, 1) * 255, 0, 255).astype(np.uint8)
+    if hi - lo >= FLATTEN_MIN_SPREAD:
+        paper = cv2.resize(paper, (grey.shape[1], grey.shape[0]), interpolation=cv2.INTER_LINEAR)
+        flat = np.clip(grey.astype(np.float32) / np.maximum(paper, 1) * 255,
+                       0, 255).astype(np.uint8)
+        second = provider.recognize(cv2.imencode(".png", flat)[1].tobytes(),
+                                    language=language, sparse=True)
+        if not second.error:
+            extra += second.regions
 
-    second = provider.recognize(cv2.imencode(".png", flat)[1].tobytes(),
-                                language=language, sparse=True)
-    if second.error:
+    for r in extra:
+        if not any(overlaps(r.bbox, f.bbox) for f in regions):
+            regions.append(r)
+    if regions == result.regions:
         return result
+    return replace(result, regions=regions)
 
-    def overlaps(a, b) -> bool:
-        return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
-    found = [r.bbox for r in result.regions]
-    extra = [r for r in second.regions if not any(overlaps(r.bbox, f) for f in found)]
-    if not extra:
-        return result
-    return replace(result, regions=[*result.regions, *extra])
+def _lettered_panels(grey, dpi: int) -> list:
+    """The picture's dark panels with light lettering on them, biggest
+    first, as (x, y, mask) with the mask covering the panel's own box."""
+    import cv2
+    import numpy as np
+
+    dark = (grey < PANEL_INK).astype(np.uint8)
+    k = max(3, int(dpi * PANEL_JOIN) | 1)
+    joined = cv2.morphologyEx(dark, cv2.MORPH_CLOSE, np.ones((k, k), np.uint8))
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(joined)
+    min_area = PANEL_MIN_AREA * grey.size
+    panels = []
+    for i in sorted(range(1, n), key=lambda i: -stats[i, cv2.CC_STAT_AREA]):
+        if stats[i, cv2.CC_STAT_AREA] < min_area:
+            break
+        x, y, w, h = (int(v) for v in stats[i, :4])
+        here = labels[y:y + h, x:x + w] == i
+        ink = here & (dark[y:y + h, x:x + w] > 0)
+        if ink.sum() < PANEL_MIN_DARK * here.sum():
+            continue
+        # Distance to the nearest edge: twice the largest is how thick the
+        # dark parts, and the light strokes, are at their thickest.
+        thick_dark = cv2.distanceTransform(ink.astype(np.uint8), cv2.DIST_L2, 3).max()
+        stroke = cv2.distanceTransform((here & ~ink).astype(np.uint8), cv2.DIST_L2, 3).max()
+        if stroke < PANEL_MIN_STROKE or thick_dark < PANEL_THICKER * stroke:
+            continue
+        core = cv2.erode(ink.astype(np.uint8), np.ones((5, 5), np.uint8)) > 0
+        lo, hi = np.percentile(grey[y:y + h, x:x + w][core], (25, 75))
+        if hi - lo > PANEL_MAX_SPREAD:
+            continue
+        panels.append((x, y, here))
+    return panels
+
+
+def _read_panel(grey, panel, provider: OCRProvider, language: str | None) -> list[OCRRegion]:
+    """The lines on one dark panel, read flipped and turned level, with
+    upright boxes in the picture's pixels."""
+    import cv2
+    import numpy as np
+
+    x, y, here = panel
+    ys, xs = np.nonzero(here)
+    (cx, cy), (rw, rh), angle = cv2.minAreaRect(
+        np.column_stack([xs, ys]).astype(np.float32)
+    )
+    # The turn that lays the panel's long side level.
+    if rw < rh:
+        angle -= 90.0
+    angle = (angle + 90.0) % 180.0 - 90.0
+    if abs(angle) > PANEL_MAX_TURN:
+        return []
+    h, w = here.shape
+    crop = np.full((h, w), 255, np.uint8)
+    crop[here] = 255 - grey[y:y + h, x:x + w][here]
+    # Turned on a canvas big enough for any turn, so no corner is cut off.
+    side = int(np.ceil(np.hypot(w, h))) + 8
+    m = cv2.getRotationMatrix2D((cx, cy), angle, 1.0)
+    m[:, 2] += (side / 2 - cx, side / 2 - cy)
+    level = cv2.warpAffine(crop, m, (side, side), flags=cv2.INTER_CUBIC,
+                           borderValue=255)
+    read = provider.recognize(cv2.imencode(".png", level)[1].tobytes(),
+                              language=language, sparse=True)
+    if read.error:
+        return []
+    back = cv2.invertAffineTransform(m)
+
+    def upright(b):
+        corners = np.array([[b[0], b[1], 1], [b[2], b[1], 1],
+                            [b[0], b[3], 1], [b[2], b[3], 1]], float) @ back.T
+        return (float(corners[:, 0].min() + x), float(corners[:, 1].min() + y),
+                float(corners[:, 0].max() + x), float(corners[:, 1].max() + y))
+
+    return [
+        replace(r, bbox=upright(r.bbox),
+                words=[replace(wd, bbox=upright(wd.bbox)) for wd in r.words])
+        for r in read.regions
+    ]
 
 
 def extract_image_text(
@@ -251,7 +376,7 @@ def extract_image_text(
             result = provider.recognize(png, language=language, sparse=True)
             # A failed read is not remembered, so the next copy tries again.
             if not result.error:
-                result = _with_flattened_read(result, png, provider, language)
+                result = _with_second_read(result, png, provider, language, dpi=dpi)
                 cache[key] = result
         if result.error:
             del png
