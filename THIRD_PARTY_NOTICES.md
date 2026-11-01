@@ -34,6 +34,7 @@ in `apps/web/scripts/build-engine.mjs` and recorded in
 | six | 1.17.0 | MIT | https://github.com/benjaminp/six |
 | typing-extensions | 4.15.0 | PSF-2.0 | https://github.com/python/typing_extensions |
 | typing-inspection | 0.4.2 | MIT | https://github.com/pydantic/typing-inspection |
+| fontTools | 4.56.0 | MIT | https://github.com/fonttools/fonttools |
 | OpenSSL (libopenssl, ssl module) | 1.1.1w | OpenSSL / SSLeay License | https://www.openssl.org/source/old/1.1.1/ |
 
 MuPDF includes third-party libraries (among them FreeType, HarfBuzz,
@@ -119,6 +120,17 @@ All are licensed under the SIL Open Font License, Version 1.1.
 | `noto-sans/` | Noto Sans | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic) |
 | `noto-serif/` | Noto Serif | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic) |
 | `open-sans/` | Open Sans | Copyright 2020 The Open Sans Project Authors (https://github.com/googlefonts/opensans) |
+
+### Fetched when a worksheet needs them
+
+`services/engine/ct_engine/fonts/google_fonts.json` lists the font families of
+https://github.com/google/fonts at commit 6c1dbe27 (names and file paths only).
+When a worksheet's PDF names one of them, the engine downloads that font file
+from jsDelivr's copy of the repository and, for a variable font, cuts it to the
+weight it needs with fontTools. These fonts are not stored in this repository;
+each keeps its own licence (SIL Open Font License 1.1, Apache-2.0 or Ubuntu Font
+Licence), found next to it in google/fonts. Calibri and Cambria are matched to
+Carlito and Caladea (OFL-1.1).
 
 ## Native build only
 

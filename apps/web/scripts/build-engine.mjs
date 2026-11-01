@@ -81,7 +81,7 @@ const PYODIDE_CORE = {
 // Pyodide's packages the engine imports (their dependencies come along).
 const PYODIDE_PACKAGES = [
   "pymupdf", "lxml", "numpy", "opencv-python", "pillow", "pydantic", "fastapi", "httpx",
-  "packaging", "six", "typing-extensions", "typing-inspection",
+  "packaging", "six", "typing-extensions", "typing-inspection", "fonttools",
 ];
 
 // The native engine's versions (services/engine/requirements.txt), except

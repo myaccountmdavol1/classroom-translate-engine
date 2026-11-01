@@ -32,6 +32,9 @@ os.environ.setdefault("CT_CORS_ORIGINS", '["http://localhost:3000"]')
 os.environ["CT_CORS_ORIGIN_REGEX"] = ""
 os.environ["CT_TRANSLATION_PROVIDER"] = "local"
 os.environ["CT_OCR_PROVIDER"] = "local"
+# No font downloads: a worksheet's own Google Font is fetched from the
+# network (fonts/google.py); tests that need one switch it back on.
+os.environ["CT_GOOGLE_FONTS"] = "0"
 # An unset variable still falls through to the developer's .env. Explicit
 # empty overrides keep offline tests from sending corpus text to paid APIs.
 for credential in (

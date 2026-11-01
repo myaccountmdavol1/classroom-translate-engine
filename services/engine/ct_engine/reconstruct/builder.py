@@ -1126,6 +1126,15 @@ def _source_look(obj) -> str:
     return "serif" if obj.style.serif else "sans"
 
 
+def _source_font(obj) -> str | None:
+    """The font the source text was set in, by name, for drawing it in the
+    same one when it is a Google Font (fonts/google.py). Words read from a
+    picture or typed in the editor have none."""
+    if obj.source is not TextSource.NATIVE:
+        return None
+    return obj.style.font_name_raw
+
+
 def _alignment_offset(
     alignment: TextAlignment, line_width: float, box_width: float
 ) -> float:
@@ -1299,6 +1308,7 @@ def rebuild_page(
             resolved[obj.id] = REGISTRY.resolve(
                 shaped, script=script, bold=obj.render_bold, italic=obj.render_italic,
                 family=obj.render_family, look=_source_look(obj),
+                source=_source_font(obj),
             )
             if not resolved[obj.id].weight_matched:
                 stats.findings.append(
@@ -1331,7 +1341,7 @@ def rebuild_page(
                     resolved[obj.id] = REGISTRY.resolve(
                         drawable, script=script, bold=obj.render_bold,
                         italic=obj.render_italic, family=obj.render_family,
-                        look=_source_look(obj),
+                        look=_source_look(obj), source=_source_font(obj),
                     )
                 except FontResolutionError as again:
                     exc = again
@@ -1651,6 +1661,7 @@ def rebuild_page(
             rfont = REGISTRY.resolve(
                 text, script=script, bold=obj.render_bold, italic=obj.render_italic,
                 family=obj.render_family, look=_source_look(obj),
+                source=_source_font(obj),
             )
         except FontResolutionError:
             return None

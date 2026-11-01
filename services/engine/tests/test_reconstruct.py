@@ -219,7 +219,7 @@ def test_font_failure_keeps_source_text_rather_than_blanking_the_page(monkeypatc
     data, pages = prepared_pages("01_clean_worksheet.pdf")
 
     def boom(self, text, *, script="Latin", bold=False, italic=False, family=None,
-             look=None):
+             look=None, source=None):
         raise reg.FontResolutionError("no font", missing="x")
 
     monkeypatch.setattr(reg.FontRegistry, "resolve", boom)
@@ -391,10 +391,10 @@ def _spy_on_resolve(monkeypatch):
     original = reg.FontRegistry.resolve
 
     def spy(self, text, *, script="Latin", bold=False, italic=False, family=None,
-            look=None):
+            look=None, source=None):
         result = original(
             self, text, script=script, bold=bold, italic=italic, family=family,
-            look=look,
+            look=look, source=source,
         )
         calls.append((text, bold, italic, result))
         return result

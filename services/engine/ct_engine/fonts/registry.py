@@ -29,7 +29,7 @@ from pathlib import Path
 import fitz
 
 from ..util.logging import get_logger
-from . import catalog
+from . import catalog, google
 
 log = get_logger(__name__)
 
@@ -458,6 +458,7 @@ class FontRegistry:
         italic: bool = False,
         family: str | None = None,
         look: str | None = None,
+        source: str | None = None,
     ) -> ResolvedFont:
         """Find a font that covers every character of `text`.
 
@@ -470,6 +471,9 @@ class FontRegistry:
         `look` ("sans", "serif" or "mono") is the source text's kind of
         face, so a Times line is redrawn in a serif and a Helvetica one in a
         sans. `family` is the teacher's explicit choice and wins over it.
+        `source` is the source text's own font name: when it is a Google
+        Font (fonts/google.py) with the letters, the text is drawn in it,
+        unless she chose a family.
 
         Raises FontResolutionError if no font at all covers the text. Its
         `missing` lists the characters in the way; when every one of them
@@ -483,8 +487,9 @@ class FontRegistry:
         # document has thousands of strings but few character sets. The
         # weight/slant flags must be part of the key too, or a bold request
         # would be served a cached regular face.
+        own = google.match(source, bold, italic) if source and not family and google.enabled() else None
         cache_key = (
-            f"{script}:{int(bold)}{int(italic)}:{family or ''}:{look}:"
+            f"{script}:{int(bold)}{int(italic)}:{family or ''}:{look}:{own or ''}:"
             f"{''.join(sorted(set(text)))[:180]}"
         )
         with self._lock:
@@ -507,6 +512,8 @@ class FontRegistry:
                 # Andika): the automatic face for the script, in that
                 # font's look, and the page says so.
                 look = entry.look
+            if styled is None and own is not None:
+                styled = self._resolve_google(text, own, bold or italic)
             if styled is not None:
                 resolved = styled
             elif bold or italic:
@@ -527,6 +534,20 @@ class FontRegistry:
         with self._lock:
             self._resolved[cache_key] = resolved
         return resolved
+
+    def _resolve_google(self, text: str, own: "google.Match", styled: bool) -> ResolvedFont | None:
+        """The source's own Google Font, if it can be had and has the
+        letters. Never joins the plain-text faces, like a catalog face."""
+        found = google.face_file(own)
+        if found is None:
+            return None
+        path, exact = found
+        if self._covering(path, text) is None:
+            return None
+        return ResolvedFont(
+            key=str(path), path=path, display_name=own.name,
+            weight_matched=exact or not styled,
+        )
 
     def _resolve_catalog(
         self, text: str, face_id: str, bold: bool, italic: bool

@@ -20,6 +20,8 @@ pdfplumber==0.11.4
 # build the test corpus, and the test suite reopens every exported file with
 # them rather than with the code that wrote it.
 python-docx==1.1.2
+# A worksheet's own Google Font is cut to the weight it needs (fonts/google.py).
+fonttools==4.56.0
 python-pptx==1.0.2
 lxml==6.1.3
 
