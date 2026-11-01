@@ -17,6 +17,7 @@ import os
 import tempfile
 import uuid
 from pathlib import Path
+from typing import Literal
 from urllib.parse import quote
 
 from starlette.concurrency import run_in_threadpool
@@ -2354,6 +2355,41 @@ def download_editable_pptx(document_id: str) -> Response:
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation", headers={
         "Content-Disposition": _content_disposition(
             "attachment", _download_name(manifest, job, "pptx", ", editable")
+        ),
+        "Cache-Control": "private, no-store",
+    })
+
+
+@router.get("/documents/{document_id}/editable-docx")
+def download_editable_docx(document_id: str, layout: Literal["flow", "page"] = "flow") -> Response:
+    """A translated PDF as Word: "flow", paragraphs that are easy to edit
+    (and open well in Google Docs), or "page", each page looking as in the
+    PDF with its lines in text boxes."""
+    from ..reconstruct.flow_docx import export_flow_docx
+    from ..reconstruct.layered_docx import export_layered_docx
+    manifest = _load_manifest(document_id)
+    if format_of(manifest).value != "PDF":
+        raise _fail(400, "Use the main download for editable Office documents.")
+    job = _latest_job(document_id)
+    if job and job.settings.target_language.split("-")[0] in ("ar", "he", "ur"):
+        raise _fail(400, "Editable right-to-left export is not ready. Download the PDF to keep the text correct.")
+    with document_lock(document_id):
+        manifest, job = _fresh_export(document_id)
+        try:
+            pdf = get_object_store().get_bytes(job.export_key)
+        except ObjectNotFoundError as exc:
+            raise _fail(404, "The translated file is no longer available.", str(exc)) from exc
+        try:
+            if layout == "page":
+                data = export_layered_docx(pdf)
+            else:
+                data = export_flow_docx(pdf, manifest.pages)
+        except ValueError as exc:
+            raise _fail(400, str(exc)) from exc
+    note = ", same look" if layout == "page" else ""
+    return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={
+        "Content-Disposition": _content_disposition(
+            "attachment", _download_name(manifest, job, "docx", note)
         ),
         "Cache-Control": "private, no-store",
     })

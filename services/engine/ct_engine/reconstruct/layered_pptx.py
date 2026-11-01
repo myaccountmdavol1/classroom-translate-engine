@@ -61,6 +61,34 @@ def styled_pages(pages) -> set[int]:
     return out
 
 
+def page_layers(page) -> tuple[bytes, list[dict], bool]:
+    """The page as a background picture with its upright text lines taken
+    out, those lines (from get_text("dict")), and whether turned text was
+    left in the picture. Changes `page`; the PDF is not saved."""
+    blocks = page.get_text("dict")["blocks"]
+    lines = [line for block in blocks if block.get("type") == 0 for line in block["lines"]]
+    # Turned text stays in the background picture: visible exactly as
+    # in the PDF, but not editable. A text box cannot be placed for
+    # it -- the upright box get_text reports does not give back the
+    # turned one -- and this export used to refuse the whole page
+    # instead, which tilted labels in pictures (now drawn along
+    # their slant) would have made common.
+    level = [
+        line for line in lines
+        if abs(line["dir"][0] - 1) <= 0.01 and abs(line["dir"][1]) <= 0.01
+    ]
+    kept_in_picture = any(
+        any(s["text"].strip() for s in line["spans"])
+        for line in lines if line not in level
+    )
+    for line in level:
+        for span in line["spans"]:
+            page.add_redact_annot(span["bbox"], fill=None)
+    page.apply_redactions(images=0, graphics=0, text=0)
+    png = page.get_pixmap(dpi=144, alpha=False).tobytes("png")
+    return png, level, kept_in_picture
+
+
 def export_layered_pptx(pdf_bytes: bytes, style_notes: set[int] | None = None) -> bytes:
     """`style_notes`: indexes of pages to give STYLED_TEXT_NOTE."""
     presentation = Presentation()
@@ -74,30 +102,9 @@ def export_layered_pptx(pdf_bytes: bytes, style_notes: set[int] | None = None) -
             raise ValueError("This page size is outside PowerPoint's supported range. Use the PDF download.")
         presentation.slide_width, presentation.slide_height = Pt(first.width), Pt(first.height)
         for index, page in enumerate(pdf):
-            blocks = page.get_text("dict")["blocks"]
-            lines = [line for block in blocks if block.get("type") == 0 for line in block["lines"]]
-            # Turned text stays in the background picture: visible exactly as
-            # in the PDF, but not editable. A text box cannot be placed for
-            # it -- the upright box get_text reports does not give back the
-            # turned one -- and this export used to refuse the whole page
-            # instead, which tilted labels in pictures (now drawn along
-            # their slant) would have made common.
-            level = [
-                line for line in lines
-                if abs(line["dir"][0] - 1) <= 0.01 and abs(line["dir"][1]) <= 0.01
-            ]
-            kept_in_picture = any(
-                any(s["text"].strip() for s in line["spans"])
-                for line in lines if line not in level
-            )
-            lines = level
-            for line in lines:
-                for span in line["spans"]:
-                    page.add_redact_annot(span["bbox"], fill=None)
-            page.apply_redactions(images=0, graphics=0, text=0)
+            png, lines, kept_in_picture = page_layers(page)
             slide = presentation.slides.add_slide(presentation.slide_layouts[6])
-            png = BytesIO(page.get_pixmap(dpi=144, alpha=False).tobytes("png"))
-            background = slide.shapes.add_picture(png, 0, 0, width=Pt(first.width), height=Pt(first.height))
+            background = slide.shapes.add_picture(BytesIO(png), 0, 0, width=Pt(first.width), height=Pt(first.height))
             background.name = "Worksheet artwork (image)"
             # Said where she will see it: the slide she opens.
             notes = [
