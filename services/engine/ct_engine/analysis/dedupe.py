@@ -27,6 +27,7 @@ import re
 
 from ..model.document import Page
 from ..model.enums import TextSource
+from ..model.geometry import Rect
 from ..model.objects import TextObject
 from ..util.logging import get_logger
 
@@ -96,6 +97,71 @@ def _contained_text(inner: str, outer: str) -> float:
     return sum(b.size for b in blocks) / len(ki)
 
 
+# Two lines of a PDF this close (points, every edge) are drawn in one place.
+SAME_PLACE = 1.5
+
+
+def _line_text(line) -> str:
+    return "".join(span.text for span in line.spans)
+
+
+def _line_size(line) -> float:
+    return max((s.style.font_size for s in line.spans), default=0.0)
+
+
+def _drop_repeated_lines(page: Page) -> list[str]:
+    """Keep one of the same words drawn twice in the same place.
+
+    A Canva title effect draws its text twice, black and then green over it
+    at exactly the same place (with its shadow a picture behind). The
+    parser read both, so the title was translated as "MAGMA MATH ACADEMY
+    MAGMA MATH ACADEMY" and drawn in the hidden copy's black. The copy drawn
+    last is the one seen, so earlier copies of a line -- same words, same
+    size, same place -- are dropped, and a block left without lines with
+    them. Returns the ids of blocks removed.
+    """
+    from ..ingest.pdf_parser import _detect_alignment, _dominant_style, _mean_line_spacing
+
+    native = [t for t in page.text_objects
+              if t.source is TextSource.NATIVE and not t.is_manual_block]
+    entries = [ln for t in native for ln in t.lines]
+    hidden: set[int] = set()
+    for k, ln in enumerate(entries):
+        words = _key(_line_text(ln))
+        if not words:
+            continue
+        for later in entries[k + 1:]:
+            if (
+                _key(_line_text(later)) == words
+                and abs(_line_size(later) - _line_size(ln)) <= 0.5
+                and all(abs(p - q) <= SAME_PLACE
+                        for p, q in zip(ln.bbox.as_tuple(), later.bbox.as_tuple()))
+            ):
+                hidden.add(id(ln))
+                break
+    if not hidden:
+        return []
+    gone: list[str] = []
+    for t in native:
+        kept = [ln for ln in t.lines if id(ln) not in hidden]
+        if len(kept) == len(t.lines):
+            continue
+        if not kept:
+            gone.append(t.id)
+            continue
+        bbox = Rect.bounding([ln.bbox for ln in kept]) or t.bbox
+        t.lines = kept
+        t.bbox = bbox
+        t.norm_bbox = bbox.normalized(page.width, page.height)
+        t.style = _dominant_style([s for ln in kept for s in ln.spans])
+        t.alignment = _detect_alignment(kept)
+        t.line_spacing = _mean_line_spacing(kept, 0.0)
+    if gone:
+        page.text_objects = [t for t in page.text_objects if t.id not in set(gone)]
+    page.diagnostics.extra["repeated_lines_dropped"] = len(hidden)
+    return gone
+
+
 def drop_duplicate_text(page: Page) -> list[str]:
     """Collapse text blocks that describe the same glyphs.
 
@@ -108,6 +174,7 @@ def drop_duplicate_text(page: Page) -> list[str]:
     a value that might repeat would quietly delete both copies instead of
     one.
     """
+    repeated = _drop_repeated_lines(page)
     objects = [t for t in page.text_objects if not t.is_manual_block]
     dropped: set[int] = set()
 
@@ -187,5 +254,5 @@ def drop_duplicate_text(page: Page) -> list[str]:
         log.debug(
             "Page %s: dropped %d duplicate text block(s)", page.number, len(dropped)
         )
-        return sorted(removed_ids)
-    return []
+        return sorted(removed_ids | set(repeated))
+    return sorted(repeated)

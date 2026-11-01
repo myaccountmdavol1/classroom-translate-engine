@@ -70,11 +70,22 @@ def test_native_text_always_wins_over_a_recognition():
     assert page.text_objects[0].source is TextSource.NATIVE
 
 
-def test_two_native_blocks_are_never_merged():
-    """The parser does not report the same glyphs twice."""
+def test_the_same_native_words_drawn_twice_in_one_place_are_one():
+    """A Canva title effect draws its words twice, the second copy over the
+    first; the one drawn last is the one seen (test_text_effects.py)."""
     page = _page([
         _obj("Total", (45, 98, 210, 125), TextSource.NATIVE, None, oid="a"),
         _obj("Total", (45, 98, 210, 125), TextSource.NATIVE, None, oid="b"),
+    ])
+    assert drop_duplicate_text(page) == ["a"]
+    assert [t.id for t in page.text_objects] == ["b"]
+
+
+def test_two_native_blocks_a_line_apart_are_both_kept():
+    """Two rows of a table can say the same; they are not one."""
+    page = _page([
+        _obj("Total", (45, 98, 210, 125), TextSource.NATIVE, None, oid="a"),
+        _obj("Total", (45, 128, 210, 155), TextSource.NATIVE, None, oid="b"),
     ])
     assert drop_duplicate_text(page) == []
     assert len(page.text_objects) == 2

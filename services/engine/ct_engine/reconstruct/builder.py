@@ -1119,6 +1119,41 @@ def _without_symbols(text: str, missing: str) -> str | None:
     return kept.strip() or None
 
 
+# A picture whose every edge is within this share of a block's height (and
+# at least 3 points) of the block's own is a picture of its words.
+SHADOW_FIT = 0.25
+
+
+def _drop_text_shadows(pdf_page, page, native) -> int:
+    """Take away the picture of words under them: a Canva title's shadow.
+
+    Canva draws a title's shadow as a grey picture of the words, cut to
+    them, behind the text. The words' glyphs were redacted and redrawn
+    translated, and the English shadow stayed behind the Spanish. A picture
+    used once on the page that fits a block being redrawn, or one of its
+    lines (a two-line title has a shadow per line), edge to edge is deleted
+    with it; a photo beside or behind words does not fit them.
+    """
+    xrefs = [i.xref for i in page.image_objects if i.xref]
+    shapes = [r for obj in native for r in (obj.bbox, *(ln.bbox for ln in obj.lines))]
+    gone = 0
+    for image in page.image_objects:
+        if not image.xref or xrefs.count(image.xref) != 1:
+            continue
+        for words in shapes:
+            pad = max(3.0, SHADOW_FIT * words.height)
+            if all(abs(p - q) <= pad for p, q in zip(image.bbox.as_tuple(), words.as_tuple())):
+                try:
+                    pdf_page.delete_image(image.xref)
+                    gone += 1
+                except Exception:  # an image it cannot replace stays
+                    log.debug("Could not take away text shadow %s", image.xref)
+                break
+    if gone:
+        page.diagnostics.extra["text_shadows_dropped"] = gone
+    return gone
+
+
 def _source_look(obj) -> str:
     """The kind of face the source text was set in, for its redrawn copy."""
     if obj.style.monospace:
@@ -1436,6 +1471,7 @@ def rebuild_page(
             graphics=fitz.PDF_REDACT_LINE_ART_NONE,
             text=fitz.PDF_REDACT_TEXT_REMOVE,
         )
+        _drop_text_shadows(pdf_page, page, native)
 
     # Native glyphs were just redacted away above, and a manual block has no
     # source text to remove in the first place, so this is the last moment
