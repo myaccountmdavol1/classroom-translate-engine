@@ -44,6 +44,7 @@ from ..pipeline.edit import (
     apply_edit,
     apply_layout,
     can_undo,
+    combine_blocks,
     editable_blocks,
     lock_reason,
     remove_block,
@@ -2222,6 +2223,19 @@ def remove_blocks_route(document_id: str, number: int, body: RemoveRequest) -> d
         document_id,
         number,
         lambda manifest, target, store: remove_blocks(
+            manifest, number, body.object_ids, store=store, target_lang=target
+        ),
+    )
+
+
+@router.post("/documents/{document_id}/pages/{number}/blocks/combine")
+def combine_blocks_route(document_id: str, number: int, body: RemoveRequest) -> dict:
+    """Make the chosen boxes one paragraph, translated as one, in one
+    undo step (pipeline/edit.combine_blocks)."""
+    return _mutate(
+        document_id,
+        number,
+        lambda manifest, target, store: combine_blocks(
             manifest, number, body.object_ids, store=store, target_lang=target
         ),
     )

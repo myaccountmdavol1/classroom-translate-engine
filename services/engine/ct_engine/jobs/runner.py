@@ -30,6 +30,7 @@ from ..analysis.block_split import split_page_blocks
 from ..analysis.classify import classify_page
 from ..analysis.dedupe import drop_duplicate_text
 from ..analysis.ocr_grouping import group_ocr_lines
+from ..analysis.paragraph_join import join_paragraph_pieces
 from ..analysis.reading_order import apply_reading_order
 from ..pipeline.analyze import analyze_document
 from ..pipeline.image_text import extract_image_text
@@ -705,6 +706,10 @@ class JobRunner:
                     # collapsed -- before anything is translated or drawn.
                     drop_duplicate_text(page)
                     split_page_blocks(page)
+                    # A PDF only: a Word or PowerPoint file's blocks are its
+                    # own paragraphs, each written back to its place.
+                    if not manifest.office_source_key:
+                        join_paragraph_pieces(page)
                     apply_reading_order(page)
                     classify_page(page, is_first_page=(page.index == 0))
                     stats = translate_page(

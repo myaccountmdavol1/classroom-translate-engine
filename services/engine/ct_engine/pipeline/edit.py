@@ -1636,6 +1636,107 @@ def remove_blocks(
     return _rerender(manifest, page, anchor, store=store, target_lang=target_lang)
 
 
+# Edges this close, as a share of the combined box's width, count as lined
+# up. Hand-set slide lines sit a point or two apart.
+LINED_UP_SHARE = 0.03
+
+
+def _joined_english(pieces: list[TextObject]) -> str:
+    """The pieces' English as one paragraph, a word broken with a hyphen
+    at a piece's end mended as flat_text mends one at a line's end."""
+    out = ""
+    for text in (" ".join(p.flat_text.split()) for p in pieces):
+        if not text:
+            continue
+        if out.endswith("-") and len(out) > 1 and out[-2].isalpha() and text[0].islower():
+            out = out[:-1] + text
+        else:
+            out = f"{out} {text}" if out else text
+    return out
+
+
+def _lined_up_alignment(pieces: list[TextObject], width: float) -> TextAlignment | None:
+    """How the pieces sit over each other: centred lines share a middle,
+    left-aligned ones a left edge. Read from where they were, as each piece
+    is often one line, from which no alignment can be told. None when they
+    are all one width, which says nothing either."""
+    boxes = [p.manual_bbox or p.bbox for p in pieces]
+    spread = {
+        TextAlignment.LEFT: [b.x0 for b in boxes],
+        TextAlignment.CENTER: [(b.x0 + b.x1) / 2 for b in boxes],
+        TextAlignment.RIGHT: [b.x1 for b in boxes],
+    }
+    spread = {k: max(v) - min(v) for k, v in spread.items()}
+    tolerance = max(2.0, width * LINED_UP_SHARE)
+    if all(s <= tolerance for s in spread.values()):
+        return None
+    best = min(spread, key=spread.get)
+    return best if spread[best] <= tolerance else None
+
+
+def combine_blocks(
+    manifest: DocumentManifest,
+    page_number: int,
+    object_ids: list[str],
+    *,
+    store: ObjectStore,
+    target_lang: str,
+) -> EditResult:
+    """Make several boxes one paragraph, as one undo step.
+
+    A paragraph the engine split into pieces (a slide's lines, each its own
+    box) was translated as fragments that overlap once longer. The pieces'
+    English, in reading order, becomes the first piece's and is translated
+    once; that box takes the area they all covered, its words in the middle
+    of it, lined up as the pieces were. The others go as Delete takes them:
+    a box she made is deleted, one the engine found is suppressed, so its
+    original words still come off the page.
+    """
+    page = manifest.page(page_number - 1)
+    if page is None:
+        raise EditError("That page could not be found.")
+    found = [o for o in (page.find_text_object(i) for i in dict.fromkeys(object_ids)) if o is not None]
+    pieces = [o for o in found if is_editable(o)]
+    if len(pieces) < 2:
+        raise EditError("Choose two or more boxes of text to combine.")
+    if any(o.manual_shape or _is_line(o) for o in pieces):
+        raise EditError("Shapes and lines cannot be combined with text. Choose boxes of text only.")
+
+    frames = {o.id: current_frame(o) for o in pieces}
+    pieces.sort(key=lambda o: (round(frames[o.id].y0, 1), frames[o.id].x0))
+    english = _joined_english(pieces)
+    if not english or len(english) > MAX_EDIT_LENGTH:
+        raise EditError("Those boxes have no English to combine, or too much for one box.")
+    translated = _translate_english(english, manifest=manifest, target_lang=target_lang)
+    area = Rect.bounding(list(frames.values()))
+    lined_up = _lined_up_alignment(pieces, area.width)
+
+    push_history(page)
+    keeper, others = pieces[0], pieces[1:]
+    keeper.approved_source_text = english
+    keeper.translated_text = translated
+    keeper.machine_translated_text = translated
+    keeper.manual_indents = None
+    keeper.keep_original = False
+    keeper.retry_background = True
+    _forget_translation_only(keeper, translated)
+    if not keeper.is_manual_block:
+        keeper.manually_edited = False
+        keeper.translation_status = TranslationStatus.TRANSLATED
+    _place(keeper, area, page)
+    keeper.manual_vertical_align = "middle"
+    if lined_up is not None:
+        keeper.manual_alignment = lined_up
+
+    gone = {o.id for o in others if o.is_manual_block}
+    for obj in others:
+        if not obj.is_manual_block:
+            obj.suppressed = True
+            obj.manually_edited = True
+    page.text_objects = [o for o in page.text_objects if o.id not in gone]
+    return _rerender(manifest, page, keeper, store=store, target_lang=target_lang)
+
+
 def restore_block(
     manifest: DocumentManifest,
     page_number: int,
