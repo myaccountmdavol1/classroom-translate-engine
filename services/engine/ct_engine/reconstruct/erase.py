@@ -294,6 +294,7 @@ def erase_ink(pdf_page: "fitz.Page", box: Rect) -> LettersErased | None:
     big[1:] = ostats[1:, cv2.CC_STAT_AREA] >= (OTHER_ART * h) ** 2
     dist = cv2.distanceTransform((~big[olabels]).astype(np.uint8), cv2.DIST_L2, 3)
     filled[hole & (dist > 2 * g)] = paper_rgb.astype(np.uint8)
+    _close_drawings(filled, hole, other > 0, (same > 0) & (thick == 0), paper_rgb, 2 * g)
 
     ys, xs = np.nonzero(hole)
     px0, py0 = max(0, int(xs.min()) - 1), max(0, int(ys.min()) - 1)
@@ -310,6 +311,48 @@ def erase_ink(pdf_page: "fitz.Page", box: Rect) -> LettersErased | None:
         ink=tuple(float(c) / 255.0 for c in (np.median(area[core], axis=0) if core.any() else ink)),
         stroke=_stroke_width(letters) / s,
     )
+
+
+# A drawing whose own edge is at least this share outline (thin strokes of
+# the ink colour) is closed with an outline where a letter stood in front of
+# it. White lettering beside a hole has no outline and is left as it is.
+OUTLINED = 0.3
+
+
+def _close_drawings(filled, hole, art, outlines, paper_rgb, blended) -> None:
+    """Where a letter stood in front of an outlined drawing (the cover's D
+    over the elf), end the drawing there: the hole takes the paper's colour
+    and the drawing's cut edge its own outline, instead of a grey smear.
+    `art`: pixels that are neither ink nor paper; `blended`: how far from
+    them the hole was blended, in pixels."""
+    if not outlines.any():
+        return
+    width = max(1, int(round(_stroke_width(outlines))))
+    # One drawing, not its pieces: the elf's grey stripes are parted by
+    # green ones the colour of the paper.
+    join = np.ones((blended + 1,) * 2, np.uint8)
+    drawing = (cv2.morphologyEx((art | outlines).astype(np.uint8), cv2.MORPH_CLOSE, join) > 0) & ~hole
+    n, labels = cv2.connectedComponents(drawing.astype(np.uint8))
+    k = np.ones((2 * width + 3,) * 2, np.uint8)
+    beside_hole = cv2.dilate(hole.astype(np.uint8), k) > 0
+    closed = np.zeros(hole.shape, bool)
+    for i in np.unique(labels[beside_hole]):
+        if i == 0:
+            continue
+        comp = labels == i
+        # Its own edge, away from the hole: outline, or not (white words).
+        edge = comp & ~(cv2.erode(comp.astype(np.uint8), k) > 0) & ~beside_hole
+        if edge.sum() > 20 * width and outlines[edge].mean() >= OUTLINED:
+            closed |= comp
+    if not closed.any():
+        return
+    near = cv2.distanceTransform((~closed).astype(np.uint8), cv2.DIST_L2, 3)
+    # The outline's own colour, from strokes the hole did not take in.
+    kept = outlines & ~hole
+    line_rgb = np.median(filled[kept if kept.any() else outlines], axis=0).astype(np.uint8)
+    cut = hole & (near <= blended + 1)
+    filled[cut] = paper_rgb.astype(np.uint8)
+    filled[cut & (near <= width)] = line_rgb
 
 
 def _stroke_width(letters: np.ndarray) -> float:

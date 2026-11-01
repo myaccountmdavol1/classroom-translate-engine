@@ -76,6 +76,32 @@ def test_a_drawings_thin_outline_is_kept():
     assert _black(_pixels(page, outline)).sum() >= 0.8 * before
 
 
+def test_a_drawing_a_letter_stood_in_front_of_ends_in_its_own_outline():
+    # The cover's D stood over the elf's grey body. Nothing behind it can be
+    # known: the body ends where the letter was, closed with a black line,
+    # and no grey is smeared into the green.
+    src = fitz.open()
+    page = src.new_page(width=500, height=300)
+    page.draw_rect(page.rect, color=None, fill=GREEN)
+    page.draw_rect(fitz.Rect(20, 110, 130, 220), color=(0, 0, 0), fill=(0.7, 0.7, 0.7), width=2)
+    page.insert_text((100, 200), "DOOR", fontsize=90, fontname="hebo", color=(0, 0, 0))
+    pix = page.get_pixmap(dpi=150)
+    flat = fitz.open().new_page(width=500, height=300)
+    flat.insert_image(flat.rect, stream=pix.tobytes("png"))
+
+    assert erase_ink(flat, Rect(x0=98, y0=130, x1=330, y1=205)) is not None
+
+    # Where the D was: green, the square's own grey (through the D's bowl)
+    # or the black line -- not a blend of them (8% of it, blended).
+    px = _pixels(flat, fitz.Rect(100, 105, 165, 225))
+    blend = (
+        (np.abs(px - np.array(GREEN) * 255).max(axis=2) > 40)
+        & (np.abs(px - 178).max(axis=2) > 25)
+        & (px.max(axis=2) > 70)
+    )
+    assert blend.mean() < 0.04
+
+
 def test_words_on_a_photo_are_refused():
     # Noise everywhere: no one paper colour to fill with.
     src = fitz.open()
