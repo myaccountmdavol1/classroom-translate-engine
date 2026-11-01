@@ -413,6 +413,21 @@ def fit_text(
     return best
 
 
+# Words in a panel stop this far inside its edge.
+INSIDE_MARGIN = 4.0
+
+
+def _holds(other: Rect, rect: Rect) -> bool:
+    """`other` is around `rect`: a panel or picture the words sit on. Its
+    edge is a wall -- a line widened into what looked like empty space ran
+    past a slide's green panel and into the next (it was "underneath", so
+    nothing stopped it)."""
+    return (
+        other.x0 <= rect.x0 + 1.0 and other.y0 <= rect.y0 + 1.0
+        and other.x1 >= rect.x1 - 1.0 and other.y1 >= rect.y1 - 1.0
+    )
+
+
 def available_growth(
     rect: Rect,
     page_bounds: Rect,
@@ -428,6 +443,9 @@ def available_growth(
     """
     ceiling = min(page_bounds.y1, rect.y1 + limit)
     for other in obstacles:
+        if _holds(other, rect):
+            ceiling = min(ceiling, other.y1 - INSIDE_MARGIN)
+            continue
         if other.y0 < rect.y1:
             continue  # above or overlapping already; not a downward blocker
         horizontally_clear = other.x1 <= rect.x0 + 0.5 or other.x0 >= rect.x1 - 0.5
@@ -468,6 +486,9 @@ def available_growth_right(
     if right_margin is not None:
         ceiling = min(ceiling, right_margin)
     for other in obstacles:
+        if _holds(other, rect):
+            ceiling = min(ceiling, other.x1 - INSIDE_MARGIN)
+            continue
         # Touching counts as in the way: an equation that starts 0.1pt inside
         # the prose box before it was skipped, and the prose grew across it.
         if other.x0 < rect.x1 - 2.0:

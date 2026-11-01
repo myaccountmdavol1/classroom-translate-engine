@@ -1240,6 +1240,14 @@ def _obstacles(page: Page, exclude_id: str) -> list[Rect]:
         v.bbox for v in page.vector_objects
         if v.bbox.width <= 3.0 and v.bbox.height >= 10.0
     ]
+    # A filled panel's edge is a wall to the words on it (fitting._holds);
+    # not the page's own background.
+    page_area = page.width * page.height
+    boxes += [
+        v.bbox for v in page.vector_objects
+        if v.is_filled and v.rect_count >= 1 and min(v.bbox.width, v.bbox.height) >= 30.0
+        and v.bbox.width * v.bbox.height < 0.85 * page_area
+    ]
     return boxes
 
 
@@ -2090,7 +2098,7 @@ def rebuild_page(
         # includes any height the fitter grew it by, and a turned label
         # does the same in its unturned frame. The box is the inner one,
         # inside her inside space.
-        k = VERTICAL_SHARE.get(obj.manual_vertical_align, 0.0)
+        k = VERTICAL_SHARE.get(obj.drawn_vertical_align, 0.0)
         box_height = layout_box.height + fit.extra_height
         slack = max(0.0, box_height - len(fit.lines) * step)
         y = layout_box.y0 + shift + size * ASCENT_RATIO + k * (slack + step - size)

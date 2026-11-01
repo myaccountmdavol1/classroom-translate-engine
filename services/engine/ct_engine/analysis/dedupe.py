@@ -97,8 +97,11 @@ def _contained_text(inner: str, outer: str) -> float:
     return sum(b.size for b in blocks) / len(ki)
 
 
-# Two lines of a PDF this close (points, every edge) are drawn in one place.
+# Two lines of a PDF this close, every edge, are drawn in one place: a few
+# points, or a share of the line's height for a shadow drawn as text a
+# little off its words (Canva; 6 points on a 50-point line).
 SAME_PLACE = 1.5
+SHADOW_OFFSET = 0.15
 
 
 def _line_text(line) -> str:
@@ -134,7 +137,7 @@ def _drop_repeated_lines(page: Page) -> list[str]:
             if (
                 _key(_line_text(later)) == words
                 and abs(_line_size(later) - _line_size(ln)) <= 0.5
-                and all(abs(p - q) <= SAME_PLACE
+                and all(abs(p - q) <= max(SAME_PLACE, SHADOW_OFFSET * ln.bbox.height)
                         for p, q in zip(ln.bbox.as_tuple(), later.bbox.as_tuple()))
             ):
                 hidden.add(id(ln))

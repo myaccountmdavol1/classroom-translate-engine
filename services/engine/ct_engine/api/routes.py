@@ -1674,7 +1674,7 @@ def _block_out(obj, page_width: float = 612.0, page_height: float = 792.0) -> di
         "manual_alignment": (
             obj.manual_alignment.value if obj.manual_alignment else None
         ),
-        "vertical_align": obj.manual_vertical_align or "top",
+        "vertical_align": obj.drawn_vertical_align,
         "manual_vertical_align": obj.manual_vertical_align,
         # Her line spacing; null is automatic.
         "line_spacing": obj.manual_line_spacing,

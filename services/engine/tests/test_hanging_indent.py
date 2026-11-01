@@ -72,10 +72,14 @@ def test_a_wrapped_question_sits_under_its_words(store):
 def test_blocks_without_markers_draw_as_they_always_have(store):
     manifest = prepared(store)
     directions = _directions(manifest)
-    assert directions.drawn_layout.lines == FROZEN_DIRECTIONS["lines"]
-    assert _rows(directions) == FROZEN_DIRECTIONS["rows"]
+    # Across, as they always have. Up and down they were frozen at the top;
+    # the engine's words now sit in the middle (drawn_vertical_align).
+    lines = lambda found: [(x, words) for x, _y, words in found]  # noqa: E731
+    assert lines(directions.drawn_layout.lines) == lines(FROZEN_DIRECTIONS["lines"])
+    across = lambda rows: [(r[0], r[1], r[3], r[4]) for r in rows]  # noqa: E731
+    assert across(_rows(directions)) == across(FROZEN_DIRECTIONS["rows"])
     assert directions.drawn_layout.marks == []
-    manifest, obj = _styled(store, alignment="JUSTIFY")
+    manifest, obj = _styled(store, alignment="JUSTIFY", vertical_align="top")
     assert _rows(obj) == FROZEN_JUSTIFIED_ROWS
 
 

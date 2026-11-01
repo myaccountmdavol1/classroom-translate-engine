@@ -441,6 +441,93 @@ def split_at_list_items(block: TextObject) -> list[TextObject]:
     return out or [block]
 
 
+def _line_colour(line: TextLine) -> str | None:
+    """The colour most of a line's letters are in."""
+    counts: dict[str, int] = {}
+    for span in line.spans:
+        if span.style.color:
+            counts[span.style.color] = counts.get(span.style.color, 0) + len(span.text.strip())
+    return max(counts, key=counts.get) if counts else None
+
+
+def _ends_a_part(line: TextLine) -> bool:
+    """A line after which a new block can start: a sentence or label ends
+    ("Watch & Review:"), or it is a heading in capitals or a short name
+    ("Leigh Shaw") -- never inside an open bracket ("(e.g., Digging")."""
+    text = line.text.strip()
+    if not text or text.count("(") > text.count(")"):
+        return False
+    letters = [c for c in text if c.isalpha()]
+    words = text.split()
+    return (
+        text.rstrip("\"'”’)]")[-1:] in (".", "!", "?", ":")
+        or (bool(letters) and all(c.isupper() for c in letters))
+        # A name: a few words, each capitalised ("Leigh Shaw"), not a
+        # short run of a sentence ("diligently to nurture").
+        or (len(words) <= 4 and all(w[0].isupper() for w in words if w[0].isalpha()))
+    )
+
+
+def _same_words(a: list[TextLine], b: list[TextLine]) -> bool:
+    """Two parts saying the same: a shadow drawn as text, offset, its words
+    sometimes read interleaved with the text's."""
+    wa = set(re.findall(r"[a-z0-9]+", " ".join(ln.text for ln in a).lower()))
+    wb = set(re.findall(r"[a-z0-9]+", " ".join(ln.text for ln in b).lower()))
+    if not wa or not wb:
+        return False
+    if len(wa & wb) >= 0.8 * min(len(wa), len(wb)):
+        return True
+    # Or on top of each other: parts of a page sit one under another, a
+    # shadow over its text, whatever its words were read as.
+    ra = Rect.bounding([ln.bbox for ln in a])
+    rb = Rect.bounding([ln.bbox for ln in b])
+    if ra is None or rb is None:
+        return False
+    w = min(ra.x1, rb.x1) - max(ra.x0, rb.x0)
+    h = min(ra.y1, rb.y1) - max(ra.y0, rb.y0)
+    smaller = min(ra.width * ra.height, rb.width * rb.height) or 1.0
+    return w > 0 and h > 0 and w * h >= 0.3 * smaller
+
+
+def split_at_colour_change(block: TextObject) -> list[TextObject]:
+    """Give lines of another colour their own block, each in its colour.
+
+    "COLORÍN COLORADO" in dark green over "ELL STRATEGY LIBRARY" in light
+    green came from the PDF as one block, and a block is drawn in one
+    colour: the translated title was all light green. A new block starts
+    where the colour changes between lines after a line that ends a part
+    (_ends_a_part): a sentence running on into a coloured phrase stays
+    together. Parts saying the same words are a shadow drawn as text
+    (Canva, offset), and the block is left as it was.
+    """
+    from ..ingest.pdf_parser import _detect_alignment, _dominant_style
+
+    lines = [ln for ln in block.lines if _visible(ln)]
+    if len(lines) < 2:
+        return [block]
+    groups: list[list[TextLine]] = [[lines[0]]]
+    for prev, line in zip(lines, lines[1:]):
+        a, b = _line_colour(prev), _line_colour(line)
+        if a and b and a != b and _ends_a_part(prev):
+            groups.append([line])
+        else:
+            groups[-1].append(line)
+    if len(groups) < 2 or any(
+        _same_words(g, h) for k, g in enumerate(groups) for h in groups[k + 1:]
+    ):
+        return [block]
+    out: list[TextObject] = []
+    for group in groups:
+        part = _clone(block, group)
+        if part is None:
+            continue
+        part.style = _dominant_style([s for ln in group for s in ln.spans])
+        if len(group) > 1:
+            part.alignment = _detect_alignment(group)
+        out.append(part)
+    return out or [block]
+
+
 def split_page_blocks(page: Page) -> int:
     """Split merged blocks on a page. Returns how many new blocks were created."""
     if not page.text_objects:
@@ -465,7 +552,8 @@ def split_page_blocks(page: Page) -> int:
             for cell in split_at_table_rules(piece, rules):
                 for row in split_tabbed_rows(cell):
                     for item in split_at_list_items(row):
-                        result.extend(split_text_block(item))
+                        for part in split_at_colour_change(item):
+                            result.extend(split_text_block(part))
     created = len(result) - len(page.text_objects)
     if created:
         for t in result:

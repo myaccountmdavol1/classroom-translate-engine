@@ -169,7 +169,9 @@ def test_each_style_is_stored_in_its_plain_form(store):
     assert obj.has_manual_layout
     assert obj.manually_edited and obj.translation_status is TranslationStatus.MANUAL_EDIT
     edit(vertical_align="top", line_spacing=0, underline=False, highlight="none")
-    assert obj.manual_vertical_align is None and obj.manual_line_spacing is None
+    # Top is her choice, kept as such: unchosen, the engine's words sit in
+    # the middle (drawn_vertical_align).
+    assert obj.manual_vertical_align == "top" and obj.manual_line_spacing is None
     assert obj.manual_underline is False and obj.manual_highlight is None
 
 
@@ -255,7 +257,8 @@ def test_the_editor_can_set_and_read_each_style(client):
     assert _wait_terminal(client, doc_id)["stage"] == "COMPLETE"
     blocks = client.get(f"/api/documents/{doc_id}/blocks").json()["pages"][0]["blocks"]
     block = next(b for b in blocks if b["original"].startswith("Directions"))
-    assert block["vertical_align"] == "top" and block["line_spacing"] is None
+    assert block["vertical_align"] == "middle" and block["manual_vertical_align"] is None
+    assert block["line_spacing"] is None
     assert block["underline"] is False and block["highlight"] is None
     assert block["justifiable"] is True and block["auto_line_height"] > 1.0
     assert block["rows"] and all({"text", "end", "spread"} <= set(r) for r in block["rows"])
@@ -290,7 +293,9 @@ def test_the_editor_can_set_and_read_each_style(client):
     assert r.status_code == 200
     reset = r.json()["block"]
     assert reset["underline"] is False and reset["highlight"] is None
-    assert reset["vertical_align"] == "top" and reset["line_spacing"] is None
+    # Reset goes back to the default: the middle, for the engine's words.
+    assert reset["vertical_align"] == "middle" and reset["manual_vertical_align"] is None
+    assert reset["line_spacing"] is None
 
 
 def test_a_justified_source_reads_as_left_because_it_is_drawn_left(store):
@@ -353,8 +358,17 @@ def test_automatic_blocks_say_where_their_sizing_starts(store):
 
 # --- 4. Up and down -------------------------------------------------------
 def test_top_keeps_the_first_baseline_where_it_always_was(store):
-    _, obj = _styled(store)
+    _, obj = _styled(store, vertical_align="top")
     assert _baselines(obj)[0] == pytest.approx(BOX["y0"] + 0.8 * SIZE, abs=0.01)
+
+
+def test_the_engines_words_sit_in_the_middle_unless_she_chose(store):
+    """A shorter translation hugging the top left a gap under it; teachers
+    found the middle made the most sense (2026-11-01)."""
+    _, chosen = _styled(store, vertical_align="middle")
+    _, unchosen = _styled(store)
+    assert unchosen.manual_vertical_align is None
+    assert _baselines(unchosen) == pytest.approx(_baselines(chosen), abs=0.01)
 
 
 def test_bottom_puts_the_last_baseline_a_descent_above_the_box_bottom(store):
@@ -592,7 +606,8 @@ def test_the_underline_is_a_rule_just_below_each_baseline(store):
 
 
 def test_a_highlight_on_a_filled_box_shows_both(store):
-    manifest, obj = _styled(store, highlight="#ffff00", fill="#3366ff")
+    # At the top, so the box's bottom is clear of the words.
+    manifest, obj = _styled(store, highlight="#ffff00", fill="#3366ff", vertical_align="top")
     arr, _ = _page_pixels(manifest, store)
     row = obj.drawn_layout.rows[0]
     s = obj.drawn_layout.size

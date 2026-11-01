@@ -263,7 +263,7 @@ def test_bottom_sits_on_the_inside_space(store):
     size = obj.drawn_layout.size
     last = [r.baseline for r in obj.drawn_layout.rows if r.text][-1]
     assert last == pytest.approx(BOX["y1"] - 8 - 0.2 * size, abs=0.01)
-    _, top = _styled(store, padding=8)
+    _, top = _styled(store, padding=8, vertical_align="top")
     first = [r.baseline for r in top.drawn_layout.rows if r.text][0]
     assert first == pytest.approx(BOX["y0"] + 8 + 0.8 * top.drawn_layout.size, abs=0.01)
 

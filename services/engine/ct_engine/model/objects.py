@@ -431,9 +431,9 @@ class TextObject(BaseObject):
     # A background colour she chose for the box ("#ffffff"), painted under
     # the text to cover what is beneath -- "HW" that would not translate.
     manual_fill: str | None = None
-    # Where the words sit up and down in the box. Top is how text has always
-    # been drawn, so it is never stored: None means top.
-    manual_vertical_align: Literal["middle", "bottom"] | None = None
+    # Where she put the words up and down in the box; None is the default
+    # (see drawn_vertical_align).
+    manual_vertical_align: Literal["top", "middle", "bottom"] | None = None
     # Line spacing she chose, as a multiple of the size: one of
     # fitting.LINE_SPACING_PRESETS. None keeps the automatic spacing (the
     # source's own, or the default, tightened when space is short).
@@ -538,6 +538,19 @@ class TextObject(BaseObject):
     @property
     def is_manual_block(self) -> bool:
         return self.source is TextSource.MANUAL
+
+    @property
+    def drawn_vertical_align(self) -> str:
+        """Where the words are drawn up and down in the box.
+
+        Her choice, else the middle for words the engine found: a shorter
+        translation hugging the top of the original's space left a gap
+        under it, and teachers found the middle made the most sense
+        (2026-11-01). A box she made starts at the top, as it always has.
+        """
+        if self.manual_vertical_align is not None:
+            return self.manual_vertical_align
+        return "top" if self.is_manual_block else "middle"
 
     @property
     def drawn_alignment(self) -> TextAlignment:

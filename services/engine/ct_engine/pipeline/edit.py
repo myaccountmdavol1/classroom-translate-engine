@@ -714,11 +714,9 @@ def _list_styles(
 
 
 def _vertical_align(value: str) -> str | None:
-    """Where the words sit up and down in the box. Top is how text has
-    always been drawn, so it is stored as None."""
-    if value == "top":
-        return None
-    if value in ("middle", "bottom"):
+    """Where the words sit up and down in the box. Top is stored as top:
+    the engine's own words default to the middle (drawn_vertical_align)."""
+    if value in ("top", "middle", "bottom"):
         return value
     raise EditError("That vertical alignment could not be read.")
 
