@@ -44,10 +44,13 @@ def test_the_same_picture_on_another_page_is_not_read_again():
     with PdfParser().open_bytes(corpus_file("04_science_diagram.pdf")) as doc:
         first = doc.parse_page(0)
         extract_image_text(doc, first, provider, language="en", seen_hashes=cache)
+        # Read once, and once more with its pointer lines painted out.
+        read_first = provider.calls
         second = doc.parse_page(0)  # the same pixels, as on a repeated slide
         stats = extract_image_text(doc, second, provider, language="en", seen_hashes=cache)
 
-    assert provider.calls == 1
+    assert read_first == 2
+    assert provider.calls == read_first
     assert stats.labels_accepted == 1
     a = [t for t in first.text_objects if t.source is TextSource.IMAGE_OCR]
     b = [t for t in second.text_objects if t.source is TextSource.IMAGE_OCR]

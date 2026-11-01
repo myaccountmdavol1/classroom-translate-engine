@@ -40,6 +40,7 @@ from ..model.objects import ImageObject, TextLine, TextObject, TextSpan, TextSty
 from ..providers.ocr.base import OCRProvider, OCRRegion, OCRResult, OCRWord
 from ..util.logging import get_logger
 from .lettering import hand_lettered, mark_hand_lettered
+from .pointer_lines import MIN_LETTERS, MIN_LINE_CONFIDENCE, crossed_by_line, hidden_words
 from .word_ends import finish_cut_words, part_of_word_finding
 
 log = get_logger(__name__)
@@ -406,6 +407,21 @@ def extract_image_text(
         regions = finish_cut_words(
             png, _join_line_pieces(_split_at_wide_gaps(result.regions)), provider, language
         )
+        # A label a diagram's pointer line runs through is read but not
+        # trusted ("Nudleolus"), and one a line hid ("Nucleus") is looked
+        # for with the lines painted out: both are kept for her to check.
+        crossed: set[int] = set()
+        found_hidden: set[int] = set()
+        grey = _grey(png)
+        if grey is not None:
+            hidden = cache.get(key + ":hidden")
+            if hidden is None:
+                hidden = hidden_words(grey, regions, provider, language)
+                cache[key + ":hidden"] = hidden
+            crossed = {id(r) for r in regions if crossed_by_line(grey, r.bbox)}
+            found_hidden = {id(r) for r in hidden}
+            regions = regions + hidden
+            del grey
         # The slant of each line is measured on a small crop rendered the
         # same way, never on a decoded copy of the whole picture.
         tilt = _TiltReader(
@@ -426,9 +442,19 @@ def extract_image_text(
         for region in regions:
             stats.labels_found += 1
             cut_short = region.cut_short
+            # A tilted label's upright box takes in its surroundings: a line
+            # through the box need not touch the words. Judged once the
+            # slant is known, below.
+            line_through = id(region) in found_hidden
+            crossed_box = id(region) in crossed
             sentence = len(_WORDLIKE.findall(region.text)) >= SENTENCE_WORDS
             readable = region.confidence >= MIN_LABEL_CONFIDENCE or (
                 sentence and region.confidence >= CHECKABLE_CONFIDENCE
+            ) or (
+                # A real label a line made shaky: listed, never translated.
+                (crossed_box or line_through)
+                and region.confidence >= MIN_LINE_CONFIDENCE
+                and sum(c.isalpha() for c in region.text) >= MIN_LETTERS
             )
             if not readable or not looks_instructional(region.text):
                 stats.labels_rejected += 1
@@ -444,6 +470,8 @@ def extract_image_text(
                 continue
 
             found = tilt.measure(region.bbox)
+            if crossed_box and (found is None or not (found.tilted or found.steep or found.curved)):
+                line_through = True
             obj = _label_object(
                 region, image, page, bbox, scale_x, scale_y, z=2000 + len(accepted)
             )
@@ -482,7 +510,7 @@ def extract_image_text(
             # she can check, with its English left on the picture until she
             # confirms or corrects it: translated as read, "Hf iis outside"
             # became nonsense painted over a sentence that was fine.
-            guessed = region.confidence < MIN_LABEL_CONFIDENCE or any(
+            guessed = line_through or region.confidence < MIN_LABEL_CONFIDENCE or any(
                 w.confidence < UNSURE_WORD_CONFIDENCE for w in region.words
             )
             if guessed or cut_short:
@@ -885,6 +913,14 @@ def _split_at_wide_gaps(regions):
                 discarded_boxes=boxes,
             ))
     return out
+
+
+def _grey(png: bytes):
+    """The picture in grey, or None when it cannot be decoded."""
+    import cv2
+    import numpy as np
+
+    return cv2.imdecode(np.frombuffer(png, np.uint8), cv2.IMREAD_GRAYSCALE)
 
 
 def _join_line_pieces(regions):
