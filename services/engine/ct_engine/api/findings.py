@@ -55,6 +55,7 @@ TITLES: dict[str, str] = {
     "image_text_not_read": "Words in pictures were not read",
     "image_text_curved": "Curved words in a picture were left in English",
     "image_text_steep": "Steeply turned words in a picture were left in English",
+    "image_text_part_of_word": "Part of a word in a picture was left in English",
     "image_text_turned": "Slanted words in a picture are now drawn along the slant",
     "image_text_tilt_kept_straight": "Slanted words you placed by hand were left straight",
     "turned_text_drawn_level": "Slanted words were translated but drawn level",
@@ -83,7 +84,9 @@ TITLES: dict[str, str] = {
 }
 
 # Findings that already say why a block was kept in its original language.
-_SAYS_WHY_KEPT = frozenset({"ocr_low_confidence", "image_text_curved", "image_text_steep"})
+_SAYS_WHY_KEPT = frozenset({
+    "ocr_low_confidence", "image_text_curved", "image_text_steep", "image_text_part_of_word",
+})
 
 # Worst first, so the queue opens on what matters.
 _SEVERITY_ORDER = {"error": 0, "warning": 1}

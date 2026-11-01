@@ -39,6 +39,8 @@ from ..model.geometry import Rect
 from ..model.objects import ImageObject, TextLine, TextObject, TextSpan, TextStyle, _new_id
 from ..providers.ocr.base import OCRProvider, OCRRegion, OCRResult, OCRWord
 from ..util.logging import get_logger
+from .lettering import hand_lettered, mark_hand_lettered
+from .word_ends import finish_cut_words, part_of_word_finding
 
 log = get_logger(__name__)
 
@@ -399,9 +401,13 @@ def extract_image_text(
         scale_x = image.bbox.width / max(1.0, (image.bbox.width / 72.0) * dpi)
         scale_y = image.bbox.height / max(1.0, (image.bbox.height / 72.0) * dpi)
 
+        # A line read only in part ("RIVER" of "DRIVER") is read again
+        # whole, or marked so that it is not translated as read.
+        regions = finish_cut_words(
+            png, _join_line_pieces(_split_at_wide_gaps(result.regions)), provider, language
+        )
         # The slant of each line is measured on a small crop rendered the
         # same way, never on a decoded copy of the whole picture.
-        del png
         tilt = _TiltReader(
             doc, page.index, image, provider, language, cache, stats,
             dpi=dpi, scale_x=scale_x, scale_y=scale_y,
@@ -413,8 +419,13 @@ def extract_image_text(
         curved: list[str] = []
         steep: list[str] = []
         rejected_regions: list[OCRRegion] = []
-        for region in _join_line_pieces(_split_at_wide_gaps(result.regions)):
+        part_of_word: list[str] = []
+        # Level labels as read, (text, box in the picture's pixels), to tell
+        # whether the picture is lettered by hand.
+        lettering: list[tuple[str, tuple[float, float, float, float]]] = []
+        for region in regions:
             stats.labels_found += 1
+            cut_short = region.cut_short
             sentence = len(_WORDLIKE.findall(region.text)) >= SENTENCE_WORDS
             readable = region.confidence >= MIN_LABEL_CONFIDENCE or (
                 sentence and region.confidence >= CHECKABLE_CONFIDENCE
@@ -474,10 +485,17 @@ def extract_image_text(
             guessed = region.confidence < MIN_LABEL_CONFIDENCE or any(
                 w.confidence < UNSURE_WORD_CONFIDENCE for w in region.words
             )
-            if guessed:
+            if guessed or cut_short:
                 obj.keep_original = True
+            elif obj.oriented is None:
+                # A turned label's upright box is not its words' shape.
+                lettering.append((region.text, region.bbox))
             accepted.append(obj)
-            if guessed and obj.id not in curved and obj.id not in steep:
+            if obj.id in curved or obj.id in steep:
+                pass
+            elif cut_short:
+                part_of_word.append(obj.id)
+            elif guessed:
                 unsure.append(obj.id)
 
         # Tilted lines sparse reading turned to scraps ("Photosynthesis Lab"
@@ -494,6 +512,9 @@ def extract_image_text(
             stats.labels_rescued += 1
             stats.labels_tilted += 1
         tilt.close()
+        if lettering and hand_lettered(png, lettering):
+            mark_hand_lettered(accepted)
+        del png
 
         if curved:
             stats.findings.append(
@@ -526,6 +547,8 @@ def extract_image_text(
                 )
             )
 
+        if part_of_word:
+            stats.findings.append(part_of_word_finding(page, part_of_word, image.bbox))
         if unsure:
             stats.findings.append(
                 QAFinding(

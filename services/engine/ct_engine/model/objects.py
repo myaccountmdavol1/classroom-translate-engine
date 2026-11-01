@@ -30,6 +30,7 @@ from .enums import (
     TextSource,
     TranslationStatus,
 )
+from ..fonts.catalog import HAND_FACE
 from .geometry import NormRect, Rect
 
 
@@ -50,6 +51,9 @@ class TextStyle(BaseModel):
     italic: bool = False
     serif: bool = False
     monospace: bool = False
+    # Words in a picture lettered by hand (pipeline/lettering.py): their
+    # translation is drawn in the hand-lettered face, not a plain one.
+    hand_lettered: bool = False
     # sRGB hex, e.g. "#1a1a1a". None when the producer left it unset.
     color: str | None = None
 
@@ -554,6 +558,14 @@ class TextObject(BaseObject):
     def render_bold(self) -> bool:
         """Weight to draw with: the reviewer's choice, else the source's."""
         return self.style.bold if self.manual_bold is None else self.manual_bold
+
+    @property
+    def render_family(self) -> str | None:
+        """Catalog face to draw in: hers, else the hand-lettered face for
+        words lettered by hand in a picture, else None (automatic)."""
+        if self.manual_font_family:
+            return self.manual_font_family
+        return HAND_FACE if self.style.hand_lettered else None
 
     @property
     def render_italic(self) -> bool:

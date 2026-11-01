@@ -47,7 +47,7 @@ from .fitting import (
     wrap_rows,
     wrap_with_ends,
 )
-from .erase import erase_letters
+from .erase import erase_ink, erase_letters
 from .lists import MarkerFonts, NUMBER_CHANGED, drawable_marker, marker_visual, plan_paragraphs
 from .reflow import ReflowPlan, plan_reflow
 from . import shapes as shape_geo
@@ -959,12 +959,26 @@ _DESCENDING = set("gjpqy()[]{}|")
 BOLD_STROKE = 0.10
 
 
-def _label_lettering(text: str, height: float) -> tuple[float, float]:
-    """(font size, descent share) of a picture label whose ink is `height` tall."""
+# The hand-lettered face's capitals, as a share of its size. Its small
+# letters are small capitals, and nothing reaches below the line.
+HAND_TALL = 0.77
+
+
+def _label_lettering(text: str, height: float, *, hand: bool = False) -> tuple[float, float]:
+    """(font size, descent share) of a picture label whose ink is `height` tall.
+
+    `hand`: drawn in the hand-lettered face, whose tallest letters are its
+    capitals; sized so they stand as tall as the original's. The descent
+    share still puts the original's baseline where it was.
+    """
     marks = [c for c in text if not c.isspace()]
     tall = not marks or any(c.isupper() or c in _TALL for c in marks)
     descent = LABEL_DESCENT if any(c in _DESCENDING for c in marks) else 0.0
-    return height / ((LABEL_TALL if tall else LABEL_SHORT) + descent), descent
+    size = height / ((LABEL_TALL if tall else LABEL_SHORT) + descent)
+    if hand:
+        drawn = size * LABEL_TALL / HAND_TALL
+        return drawn, descent * size / drawn
+    return size, descent
 
 
 def _label_em_box(obj) -> tuple[float, Rect]:
@@ -977,7 +991,7 @@ def _label_em_box(obj) -> tuple[float, Rect]:
     one ascent above the baseline to a full line below that top.
     """
     b = obj.bbox
-    size, descent = _label_lettering(obj.flat_text, b.height)
+    size, descent = _label_lettering(obj.flat_text, b.height, hand=obj.style.hand_lettered)
     baseline = b.y1 - descent * size
     top = baseline - ASCENT_RATIO * size
     return size, Rect(x0=b.x0, y0=top, x1=b.x1, y1=max(b.y1, top + size * DEFAULT_LEADING))
@@ -991,7 +1005,7 @@ def _label_em_frame(obj, angle: float) -> tuple[float, OrientedBox]:
     were, "Collection Pond" came out a third smaller than its lettering.
     """
     ob = obj.oriented
-    size, descent = _label_lettering(obj.flat_text, ob.height)
+    size, descent = _label_lettering(obj.flat_text, ob.height, hand=obj.style.hand_lettered)
     # Across the line, from the frame's centre: down is positive.
     baseline = ob.height / 2.0 - descent * size
     top = baseline - ASCENT_RATIO * size
@@ -1284,7 +1298,7 @@ def rebuild_page(
         try:
             resolved[obj.id] = REGISTRY.resolve(
                 shaped, script=script, bold=obj.render_bold, italic=obj.render_italic,
-                family=obj.manual_font_family, look=_source_look(obj),
+                family=obj.render_family, look=_source_look(obj),
             )
             if not resolved[obj.id].weight_matched:
                 stats.findings.append(
@@ -1316,7 +1330,7 @@ def rebuild_page(
                 try:
                     resolved[obj.id] = REGISTRY.resolve(
                         drawable, script=script, bold=obj.render_bold,
-                        italic=obj.render_italic, family=obj.manual_font_family,
+                        italic=obj.render_italic, family=obj.render_family,
                         look=_source_look(obj),
                     )
                 except FontResolutionError as again:
@@ -1490,7 +1504,28 @@ def rebuild_page(
                 obj.background_color = _hex(color) if color is not None else None
                 obj.erase_grown = False
                 raster_ink[obj.id] = ensure_contrast(erased.ink, erased.background)
-                size, _ = _label_lettering(obj.flat_text, obj.bbox.height)
+                size, _ = _label_lettering(obj.flat_text, obj.bbox.height, hand=obj.style.hand_lettered)
+                if erased.stroke > BOLD_STROKE * size and not obj.style.bold:
+                    obj.style = obj.style.model_copy(update={"bold": True})
+                stats.covered += 1
+                continue
+        if (
+            color is None and ob is None and obj.fill_box and not obj.manual_fill
+            and obj.style.hand_lettered
+            and sum(c.isalnum() for c in obj.flat_text) >= 2
+        ):
+            # A Word picture's hand lettering with other artwork around it:
+            # a cover's black title between its white words. Its own ink is
+            # erased and filled with the paper's colour. Lettered pictures
+            # only (a page of book covers and photos read words off the
+            # photos), and words only: a "—" read off a drawing's outline
+            # would erase the drawing's black.
+            erased = erase_ink(pdf_page, obj.bbox)
+            if erased is not None:
+                obj.background_color = _hex(erased.background)
+                obj.erase_grown = False
+                raster_ink[obj.id] = ensure_contrast(erased.ink, erased.background)
+                size, _ = _label_lettering(obj.flat_text, obj.bbox.height, hand=obj.style.hand_lettered)
                 if erased.stroke > BOLD_STROKE * size and not obj.style.bold:
                     obj.style = obj.style.model_copy(update={"bold": True})
                 stats.covered += 1
@@ -1615,7 +1650,7 @@ def rebuild_page(
         try:
             rfont = REGISTRY.resolve(
                 text, script=script, bold=obj.render_bold, italic=obj.render_italic,
-                family=obj.manual_font_family, look=_source_look(obj),
+                family=obj.render_family, look=_source_look(obj),
             )
         except FontResolutionError:
             return None
@@ -1673,7 +1708,7 @@ def rebuild_page(
                 # guess's size a block read earlier may still carry -- also
                 # once she turns it herself, or drags it (which takes the
                 # slant as her angle), so its size stays where it was.
-                size, _ = _label_lettering(obj.flat_text, obj.oriented.height)
+                size, _ = _label_lettering(obj.flat_text, obj.oriented.height, hand=obj.style.hand_lettered)
                 size = round(max(4.0, size), 1)
                 base_size = min(base_size, size) if obj.manual_font_size else size
             source_box = frame.frame()
@@ -2127,7 +2162,7 @@ def rebuild_page(
                 message=NUMBER_CHANGED, object_ids=[obj.id], bbox=obj.bbox,
             ))
         if rfont.fell_back:
-            chosen = catalog.face(obj.manual_font_family)
+            chosen = catalog.face(obj.render_family)
             stats.findings.append(QAFinding(
                 # Recorded, not queued: the words are drawn, in the face
                 # that has their letters, and the editor's menu says so.

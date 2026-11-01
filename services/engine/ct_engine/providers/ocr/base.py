@@ -47,6 +47,10 @@ class OCRRegion:
     discarded_boxes: list[tuple[float, float, float, float]] = field(
         default_factory=list
     )
+    # The line's lettering carries on past its box and could not be read
+    # whole ("ght" of "Midnight"): what was read is part of a word, and
+    # must not be translated as if it were the word (pipeline/word_ends.py).
+    cut_short: bool = False
 
 
 @dataclass

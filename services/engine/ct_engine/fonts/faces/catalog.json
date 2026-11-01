@@ -84,6 +84,20 @@
         "bold_italic": "comic-neue/ComicNeue-BoldItalic.ttf"
       },
       "covers": ["es", "pt", "fr", "ht", "pl"]
+    },
+    {
+      "id": "amatic-sc",
+      "name": "Amatic SC",
+      "look": "sans",
+      "label": "Amatic SC",
+      "hint": "Hand-lettered, like a poster or book cover",
+      "files": {
+        "regular": "amatic-sc/AmaticSC-Regular.ttf",
+        "bold": "amatic-sc/AmaticSC-Bold.ttf",
+        "italic": null,
+        "bold_italic": null
+      },
+      "covers": ["es", "pt", "fr", "ht", "vi", "pl", "ru", "uk", "he"]
     }
   ],
   "marks": "marks/NotoSansSymbols2-Regular.ttf"

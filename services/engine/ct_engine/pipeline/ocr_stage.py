@@ -27,6 +27,8 @@ from ..model.objects import TextLine, TextObject, TextSpan, TextStyle, _new_id
 from ..providers.ocr.base import OCRProvider, OCRRegion
 from ..util.logging import get_logger
 from .ocr_prep import remove_grid_lines
+from .lettering import hand_lettered, mark_hand_lettered
+from .word_ends import finish_cut_words, part_of_word_finding
 
 log = get_logger(__name__)
 
@@ -233,10 +235,18 @@ def ocr_page(
         page.ocr_done = True
         return stats
 
+    regions = result.regions
+    if pictures:
+        # Hand-lettered titles are read in pieces ("RIVER" of "DRIVER"):
+        # each is read again whole, or kept from being translated as read.
+        regions = finish_cut_words(png, regions, provider, language)
+
     scale = 72.0 / dpi
     readable = _drop_unreadable_text(page)
     kept: list[TextObject] = []
-    for i, region in enumerate(result.regions):
+    part_of_word: list[str] = []
+    lettering: list[tuple[str, tuple[float, float, float, float]]] = []
+    for i, region in enumerate(regions):
         if not region.text.strip():
             continue
         if region.confidence < DISCARD_CONFIDENCE:
@@ -249,9 +259,18 @@ def ocr_page(
             continue
         if any(obj.bbox.overlap_fraction_of_self(r) > ALREADY_READ for r in readable):
             continue
-        if region.confidence < REVIEW_CONFIDENCE:
-            stats.low_confidence_regions += 1
+        if region.cut_short:
+            obj.keep_original = True
+            part_of_word.append(obj.id)
+        else:
+            lettering.append((region.text, region.bbox))
+            if region.confidence < REVIEW_CONFIDENCE:
+                stats.low_confidence_regions += 1
         kept.append(obj)
+
+    if pictures and lettering and hand_lettered(png, lettering):
+        # A Word picture lettered by hand: a cover, a chapter title.
+        mark_hand_lettered(kept)
 
     # OCR objects are appended, not substituted: a MIXED page keeps whatever
     # real text layer it had, and we only add what was read from the image.
@@ -260,6 +279,8 @@ def ocr_page(
     stats.pages_read = 1
     stats.regions = len(kept)
     stats.mean_confidence = result.mean_confidence
+    if part_of_word:
+        stats.findings.append(part_of_word_finding(page, part_of_word, None))
 
     if not kept:
         stats.findings.append(

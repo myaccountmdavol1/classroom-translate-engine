@@ -51,7 +51,7 @@ def test_the_catalog_lists_real_openly_licensed_files():
     raw = json.loads(catalog.CATALOG_FILE.read_text())
     assert raw["version"] == 1
     assert [f["id"] for f in raw["faces"]] == [
-        "noto-sans", "noto-serif", "open-sans", "andika", "lexend", "comic-neue",
+        "noto-sans", "noto-serif", "open-sans", "andika", "lexend", "comic-neue", "amatic-sc",
     ]
     for face in raw["faces"]:
         assert face["look"] in ("sans", "serif") and face["name"] and face["hint"]

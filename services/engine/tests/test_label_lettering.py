@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from ct_engine.model.geometry import Rect
+from ct_engine.model.objects import TextStyle
 from ct_engine.reconstruct.builder import ASCENT_RATIO, _label_em_box, _label_lettering
 
 
@@ -31,7 +32,7 @@ def test_size_is_the_ink_height_over_its_share_of_the_font(text, ink_share):
 
 class _Label:
     def __init__(self, text, bbox):
-        self.flat_text, self.bbox = text, bbox
+        self.flat_text, self.bbox, self.style = text, bbox, TextStyle()
 
 
 def test_the_translation_sits_on_the_original_baseline():
@@ -52,7 +53,7 @@ def test_a_descender_moves_the_baseline_up_from_the_box_bottom():
 
 class _Tilted:
     def __init__(self, text, oriented):
-        self.flat_text, self.oriented = text, oriented
+        self.flat_text, self.oriented, self.style = text, oriented, TextStyle()
 
 
 @pytest.mark.parametrize("angle", [0.0, 12.0, -20.0])

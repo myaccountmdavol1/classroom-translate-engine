@@ -26,6 +26,9 @@ from pathlib import Path
 
 FACES_DIR = Path(__file__).parent / "faces"
 CATALOG_FILE = FACES_DIR / "catalog.json"
+# The face a picture's hand-lettered words are translated in, unless she
+# picks another (pipeline/lettering.py).
+HAND_FACE = "amatic-sc"
 
 
 @dataclass(frozen=True)

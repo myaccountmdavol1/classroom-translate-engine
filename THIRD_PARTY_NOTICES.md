@@ -111,6 +111,7 @@ All are licensed under the SIL Open Font License, Version 1.1.
 
 | Folder | Fonts | Copyright |
 |---|---|---|
+| `amatic-sc/` | Amatic SC | Copyright 2015 The Amatic SC Project Authors (https://github.com/googlefonts/AmaticSC) |
 | `andika/` | Andika | Copyright (c) 2004-2022 SIL International |
 | `comic-neue/` | Comic Neue | Copyright 2014 The Comic Neue Project Authors (https://github.com/crozynski/comicneue) |
 | `lexend/` | Lexend | Copyright 2018 The Lexend Project Authors (https://github.com/googlefonts/lexend), Reserved Font Name "RevReading Lexend" |
