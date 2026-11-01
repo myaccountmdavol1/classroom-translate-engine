@@ -47,6 +47,9 @@ SHORT_RULE = 0.3
 # A box smaller than this (points) both ways is a tick box or a mark: kept
 # as a small picture rather than made a box to write in.
 SMALL_BOX = 30
+# A picture no bigger than this (points) beside a one-line heading is an
+# icon, set at the end of the heading's line.
+ICON = 2 * SMALL_BOX
 # The space between two things is kept as on the page -- it is often room
 # to write the answer in -- up to most of a page.
 MAX_GAP = 600
@@ -232,6 +235,68 @@ def _flat(pdf_page, box: Box) -> tuple[bool, str | None]:
     return flat, (None if median.min() >= 235 else colour)
 
 
+def _same_box(a: Box, b: Box, pad: float = 2.0) -> bool:
+    return all(abs(p - q) <= pad for p, q in zip(a, b))
+
+
+def _shows(pdf_page, box: Box, colour: str, on_top: list[Box]) -> bool:
+    """Whether the page shows `colour` over most of the box, the words and
+    pictures on it aside. A filled path can be a mask or a clip drawn under
+    the real one (a Canva panel comes with a black one of its size)."""
+    import numpy as np
+
+    # Its edge aside too: a rounded outline, and the page in its corners.
+    w, h = box[2] - box[0], box[3] - box[1]
+    box = (box[0] + 0.06 * w, box[1] + 0.06 * h, box[2] - 0.06 * w, box[3] - 0.06 * h)
+    pix = pdf_page.get_pixmap(clip=fitz.Rect(box), dpi=36, alpha=False)
+    px = np.frombuffer(pix.samples, np.uint8).reshape(pix.height, pix.width, pix.n)[:, :, :3].astype(int)
+    keep = np.ones(px.shape[:2], bool)
+    sx, sy = pix.width / max(1.0, box[2] - box[0]), pix.height / max(1.0, box[3] - box[1])
+    for r in on_top:
+        x0, x1 = int((r[0] - box[0]) * sx), int((r[2] - box[0]) * sx) + 1
+        y0, y1 = int((r[1] - box[1]) * sy), int((r[3] - box[1]) * sy) + 1
+        keep[max(0, y0):max(0, y1), max(0, x0):max(0, x1)] = False
+    if keep.sum() < 16:
+        return False
+    want = np.array([int(colour[k:k + 2], 16) for k in (0, 2, 4)])
+    return (np.abs(px[keep] - want).max(axis=1) <= 24).mean() >= 0.8
+
+
+def _panels(vectors: list, texts: list, images: list, pdf_page,
+            used: set[int]) -> tuple[list[Item], set[int]]:
+    """Coloured panels with words on them, as boxes to hold the words.
+
+    A filled rectangle is not an answer box (the parser leaves filled ones
+    out of looks_like_box), so it was a picture, and the words on a Canva
+    slide's panel came out after it, white on a white page. One with words
+    on it that the page really shows in its colour is a box of that colour;
+    the outline and masks drawn at its size go with it, its border the
+    outline's colour (else its own, never black).
+    """
+    frames: list[Item] = []
+    taken: set[int] = set()
+    on_top = [_rect(t.drawn_bbox or t.bbox) for t in texts] + [_rect(m.bbox) for m in images]
+    for i, v in enumerate(vectors):
+        b = _rect(v.bbox)
+        fill = _hex(v.fill_color)
+        if (i in used or i in taken or not v.is_filled or not fill or v.rect_count < 1
+                or v.curve_count or min(b[2] - b[0], b[3] - b[1]) < SMALL_BOX):
+            continue
+        on = [t for t in texts if t.source in (TextSource.NATIVE, TextSource.MANUAL)
+              and _inside(_centre(_rect(t.bbox)), b)]
+        # Icons drawn on it are on top of it too.
+        drawn = [_rect(w.bbox) for k, w in enumerate(vectors)
+                 if k != i and _inside(_centre(_rect(w.bbox)), b) and _area(_rect(w.bbox)) < 0.25 * _area(b)]
+        if not on or not _shows(pdf_page, b, fill, on_top + drawn):
+            continue
+        twins = {k for k, w in enumerate(vectors) if k not in used and _same_box(_rect(w.bbox), b)}
+        outline = next((_hex(vectors[k].stroke_color) for k in twins
+                        if not vectors[k].is_filled and vectors[k].stroke_color), None)
+        frames.append(Item("box", b, stroke=outline or fill, fill=fill))
+        taken |= twins | {i}
+    return frames, taken
+
+
 def _merge(pictures: list[Item]) -> list[Item]:
     """Drawings that touch are one picture."""
     out = list(pictures)
@@ -280,7 +345,9 @@ def _read_page(page, pdf_page) -> tuple[list[Item], list]:
 
     # Frames (boxes, and images of one flat colour) hold the words in them;
     # other images and drawings are pictures.
-    frames: list[Item] = []
+    frames, taken = _panels(vectors, texts, page.image_objects, pdf_page, used)
+    panels = list(frames)
+    used |= taken
     pictures: list[Item] = []
     for i, v in enumerate(vectors):
         b = _rect(v.bbox)
@@ -299,10 +366,25 @@ def _read_page(page, pdf_page) -> tuple[list[Item], list]:
             frames.append(Item("box", b, fill=colour))
         else:
             pictures.append(Item("picture", b))
+    # Drawings on a panel are merged with each other only, and go in it:
+    # merged with a logo overlapping the panel's edge, the form icon on a
+    # slide's panel made one picture across both, which took the panel.
+    for f in panels:
+        on = [p for p in pictures if _inside(_centre(p.box), f.box) and _area(p.box) < _area(f.box)]
+        pictures = [p for p in pictures if p not in on]
+        f.inner += _merge(on)
     pictures = _merge(pictures)
-    # A frame inside a drawing is part of the drawing.
-    frames = [f for f in frames
-              if not any(_inside(_centre(f.box), p.box) and _area(p.box) > _area(f.box) for p in pictures)]
+    # A picture whose top a panel covers (a logo set into a panel's bottom
+    # edge) starts below the panel, or it is cut with a strip of the panel
+    # and the icons on it.
+    for p in pictures:
+        for f in panels:
+            if f.y0 <= p.y0 < f.y1 < p.y1 and f.x0 - 2 <= p.x0 and p.x1 <= f.x1 + 2:
+                p.box = (p.x0, f.y1, p.x1, p.y1)
+    # A frame inside a drawing is part of the drawing; a panel, its colour
+    # seen on the page, is not.
+    frames = [f for f in frames if f in panels
+              or not any(_inside(_centre(f.box), p.box) and _area(p.box) > _area(f.box) for p in pictures)]
 
     # Words in a picture are part of it when they were read from it (and
     # translated into it, or from a scan) or label a drawing; words typed
@@ -389,6 +471,19 @@ def _columns(band: list[Item]) -> list[list[Item]]:
             columns.append([item])
             reach = item.x1
     return columns
+
+
+def _heading_with_icons(columns: list[list[Item]]) -> tuple[Item, list[Item]] | None:
+    """A one-line heading with small pictures beside it ("Aprender" and its
+    link symbol). Made columns, the heading ran into the icon, its column
+    was narrower than the word, and Word broke it ("Aprende / r"). The
+    heading takes the line's width and the icons follow it in the line."""
+    texts = [c[0] for c in columns if len(c) == 1 and c[0].single_line()]
+    icons = [c[0] for c in columns if len(c) == 1 and c[0].kind == "picture"
+             and max(c[0].x1 - c[0].x0, c[0].y1 - c[0].y0) <= ICON]
+    if len(texts) != 1 or len(texts) + len(icons) != len(columns):
+        return None
+    return texts[0], sorted(icons, key=lambda i: i.x0)
 
 
 def _texts(items: list[Item]):
@@ -555,6 +650,15 @@ class _Writer:
         p.paragraph_format.left_indent = Pt(max(0.0, min(item.x0 - left, right - left - width)))
         p.add_run().add_picture(BytesIO(png), width=Pt(width))
 
+    def icon(self, paragraph, item: Item):
+        """A small picture at the end of a line of words."""
+        clip = fitz.Rect(item.box) & self.picture_page.rect
+        if clip.is_empty:
+            return
+        png = self.picture_page.get_pixmap(clip=clip, dpi=PICTURE_DPI, alpha=False).tobytes("png")
+        paragraph.add_run("  ")
+        paragraph.add_run().add_picture(BytesIO(png), width=Pt(clip.width))
+
     # Tables ----------------------------------------------------------------------------
     @staticmethod
     def _table(container, rows: int, widths: list[float], indent: float, border: str | None, margin: float):
@@ -649,6 +753,12 @@ class _Writer:
                     self.one(container, item, left, right, gap if k == 0 else 4)
             elif all(len(c) == 1 and c[0].single_line() for c in columns):
                 self.tab_row(container, [c[0] for c in columns], left, gap)
+            elif (headed := _heading_with_icons(columns)) is not None:
+                heading, icons = headed
+                self.text(container, heading, left, right, gap)
+                line = container.paragraphs[-1]
+                for icon in icons:
+                    self.icon(line, icon)
             else:
                 self.columns(container, columns, left, gap)
             bottom = max(i.y1 for i in band)
