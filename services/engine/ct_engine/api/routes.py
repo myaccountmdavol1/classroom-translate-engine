@@ -2379,6 +2379,7 @@ def download_editable_docx(document_id: str, layout: Literal["flow", "page"] = "
     """A translated PDF as Word: "flow", paragraphs that are easy to edit
     (and open well in Google Docs), or "page", each page looking as in the
     PDF with its lines in text boxes."""
+    from ..reconstruct.docx_fonts import embed_fonts
     from ..reconstruct.flow_docx import export_flow_docx
     from ..reconstruct.layered_docx import export_layered_docx
     manifest = _load_manifest(document_id)
@@ -2400,6 +2401,8 @@ def download_editable_docx(document_id: str, layout: Literal["flow", "page"] = "
                 data = export_flow_docx(pdf, manifest.pages)
         except ValueError as exc:
             raise _fail(400, str(exc)) from exc
+        # The faces it is drawn in go with it, or Word puts in a stand-in.
+        data = embed_fonts(data)
     note = ", same look" if layout == "page" else ""
     return Response(data, media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document", headers={
         "Content-Disposition": _content_disposition(

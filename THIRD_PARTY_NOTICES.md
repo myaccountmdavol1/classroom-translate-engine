@@ -132,6 +132,11 @@ each keeps its own licence (SIL Open Font License 1.1, Apache-2.0 or Ubuntu Font
 Licence), found next to it in google/fonts. Calibri and Cambria are matched to
 Carlito and Caladea (OFL-1.1).
 
+A Word file downloaded from the app carries the fonts above, and the
+Google fonts fetched for it, embedded as Word embeds fonts
+(`services/engine/ct_engine/reconstruct/docx_fonts.py`); each keeps its
+own licence, all of which allow embedding in documents.
+
 ## Native build only
 
 `services/engine/requirements.txt` additionally pins, among others,

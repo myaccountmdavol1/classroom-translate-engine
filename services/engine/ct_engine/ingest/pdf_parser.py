@@ -46,6 +46,7 @@ from ..model.objects import (
 from ..util.hashing import sha256_bytes
 from ..util.logging import get_logger
 from .base import DocumentParser, OpenDocument, PageParseError, ParseError
+from .font_look import key as font_key, own_looks, serif as face_is_serif
 from .math_runs import normalize_line_spans
 
 log = get_logger(__name__)
@@ -220,6 +221,9 @@ class PyMuPDFDocument(OpenDocument):
         self._doc = doc
         self._closed = False
         self._settings = get_settings()
+        # Each embedded font's own word on whether it is serif, by xref
+        # (ingest/font_look.py), read once per document.
+        self._looks: dict = {}
 
     # -- lifecycle ---------------------------------------------------------
     @property
@@ -309,6 +313,14 @@ class PyMuPDFDocument(OpenDocument):
             | fitz.TEXT_PRESERVE_WHITESPACE
             | fitz.TEXT_MEDIABOX_CLIP,
         )
+        # Whether each face is serif: the font's own word over the PDF's
+        # flag, which Canva sets on every font (ingest/font_look.py).
+        looks = own_looks(self._doc, page, self._looks)
+        flagged = {
+            font_key(s.get("font")): bool(int(s.get("flags", 0) or 0) & _FLAG_SERIF)
+            for b in raw.get("blocks", []) for ln in b.get("lines", []) for s in ln.get("spans", [])
+        }
+        flags_lie = any(f and looks.get(k) is False for k, f in flagged.items())
         for block in raw.get("blocks", []):
             number = int(block.get("number", 0) or 0)
             max_number = max(max_number, number)
@@ -325,10 +337,15 @@ class PyMuPDFDocument(OpenDocument):
                     text = raw_span.get("text", "")
                     if not text:
                         continue
+                    style = _style_from_span(raw_span)
+                    name = raw_span.get("font")
+                    style.serif = face_is_serif(
+                        name, style.serif, looks.get(font_key(name)), flags_lie
+                    )
                     span = TextSpan(
                         text=text,
                         bbox=self._to_visual(raw_span["bbox"], matrix),
-                        style=_style_from_span(raw_span),
+                        style=style,
                     )
                     spans.append(span)
                     all_spans.append(span)
