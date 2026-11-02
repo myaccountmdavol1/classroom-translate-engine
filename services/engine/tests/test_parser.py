@@ -307,3 +307,23 @@ def test_blank_lines_do_not_stretch_a_block(parser):
     ]
     # Measured with the blank lines, which sit at the paragraph's own pitch.
     assert block.line_spacing == pytest.approx(15.1, abs=0.5)
+
+
+def test_a_picture_cropped_far_past_the_page_is_read(parser):
+    """Canva crops a photo by drawing it whole past the slide's edge; every
+    slide of a Library Media deck with one failed to read."""
+    import fitz
+
+    pdf = fitz.open()
+    page = pdf.new_page(width=600, height=400)
+    pix = fitz.Pixmap(fitz.csRGB, fitz.IRect(0, 0, 20, 20), False)
+    pix.set_rect(pix.irect, (200, 120, 30))
+    page.insert_image(fitz.Rect(300, 100, 1100, 700), pixmap=pix)
+    page.draw_rect(fitz.Rect(-400, 350, 500, 900), color=None, fill=(0, 0.3, 0.1))
+    with parser.open_bytes(pdf.tobytes()) as doc:
+        parsed = doc.parse_page(0)
+
+    [image] = parsed.image_objects
+    assert image.bbox.x1 == pytest.approx(1100), "drawn where it really is"
+    assert (image.norm_bbox.x1, image.norm_bbox.y1) == (1.0, 1.0), "placed where it shows"
+    assert parsed.vector_objects

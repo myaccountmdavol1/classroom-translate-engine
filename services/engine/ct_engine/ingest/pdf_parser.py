@@ -32,7 +32,7 @@ from ..model.enums import (
     TextAlignment,
     TextSource,
 )
-from ..model.geometry import Rect
+from ..model.geometry import NormRect, Rect
 from ..model.objects import (
     FormFieldObject,
     ImageObject,
@@ -198,6 +198,19 @@ def _detect_alignment(lines: list[TextLine], tolerance: float = 1.5) -> TextAlig
     if center_flush:
         return TextAlignment.CENTER
     return TextAlignment.UNKNOWN
+
+
+def _on_page(bbox: Rect, page: "fitz.Page") -> NormRect:
+    """Where `bbox` shows on the page, as page fractions.
+
+    Canva crops a photo by drawing it whole and clipping it, so a picture
+    can run half a page past the edge; measured as it is, its place did not
+    fit a page and every slide with one failed to read. Only the part on the
+    page is seen, so that is the part the editor places. The object keeps
+    its real `bbox` for drawing.
+    """
+    w, h = page.rect.width, page.rect.height
+    return bbox.clamped_to(Rect(x0=0, y0=0, x1=w, y1=h)).normalized(w, h)
 
 
 def _mean_line_spacing(lines: list[TextLine], angle_deg: float) -> float | None:
@@ -391,7 +404,7 @@ class PyMuPDFDocument(OpenDocument):
                     id=_new_id("text"),
                     kind=ObjectKind.TEXT,
                     bbox=bbox,
-                    norm_bbox=bbox.normalized(page.rect.width, page.rect.height),
+                    norm_bbox=_on_page(bbox, page),
                     z_order=number,
                     rotation=dominant_angle,
                     lines=lines,
@@ -432,7 +445,7 @@ class PyMuPDFDocument(OpenDocument):
                     id=_new_id("img"),
                     kind=ObjectKind.IMAGE,
                     bbox=bbox,
-                    norm_bbox=bbox.normalized(page.rect.width, page.rect.height),
+                    norm_bbox=_on_page(bbox, page),
                     # Images and text share the content-stream numbering from
                     # get_text, but get_image_info numbers restart at 0, so a
                     # separate band keeps them from colliding. Relative order
@@ -501,7 +514,7 @@ class PyMuPDFDocument(OpenDocument):
                     id=_new_id("vec"),
                     kind=ObjectKind.VECTOR,
                     bbox=bbox,
-                    norm_bbox=bbox.normalized(page.rect.width, page.rect.height),
+                    norm_bbox=_on_page(bbox, page),
                     z_order=idx,
                     line_count=line_count,
                     rect_count=rect_count,
@@ -534,7 +547,7 @@ class PyMuPDFDocument(OpenDocument):
                     id=_new_id("field"),
                     kind=ObjectKind.FORM_FIELD,
                     bbox=bbox,
-                    norm_bbox=bbox.normalized(page.rect.width, page.rect.height),
+                    norm_bbox=_on_page(bbox, page),
                     z_order=idx,
                     field_name=getattr(w, "field_name", None),
                     field_type=str(getattr(w, "field_type_string", "") or "") or None,

@@ -1154,6 +1154,89 @@ def _drop_text_shadows(pdf_page, page, native) -> int:
     return gone
 
 
+# An underline is a thin rule in the bottom of a line of words (below this
+# share of its height), across words for most of its length.
+UNDERLINE_LOW = 0.55
+UNDERLINE_THIN = 2.5
+UNDERLINE_UNDER_WORDS = 0.8
+# A block whose every line is underlined this far across is drawn underlined.
+UNDERLINED_THROUGH = 0.9
+
+
+def _drop_underlines(pdf_page, page, native) -> set[str]:
+    """Take away the lines drawn under words that were redrawn.
+
+    Canva draws a link's underline as a thin filled bar, not as part of the
+    words, so redacting the words left it where the English was: on the
+    Colorín Colorado slide it ran through the middle of the Spanish
+    paragraph like a strike-through. A rule in the lower part of a redrawn
+    line, with words over most of it, is that line's underline and goes
+    with it. A writing line or a blank in a sentence has no words over it
+    and stays, and so does a table's border, which meets the lines between
+    its columns where an underline meets nothing.
+
+    Returns the ids of blocks underlined all the way through (an underlined
+    heading), whose translation is drawn underlined in its place. A link in
+    the middle of a sentence cannot be found in the translation, so its
+    underline is only taken away.
+    """
+    lines = [(obj, ln) for obj in native for ln in obj.lines]
+    uprights = [v.bbox for v in page.vector_objects
+                if v.bbox.width <= UNDERLINE_THIN and v.bbox.height >= 4]
+
+    def in_a_grid(rule: Rect) -> bool:
+        return any(
+            up.y0 - 1.5 <= rule.y0 and rule.y1 <= up.y1 + 1.5
+            and (abs(up.x0 - rule.x0) <= 1.5 or abs(up.x1 - rule.x1) <= 1.5
+                 or abs(up.x1 - rule.x0) <= 1.5 or abs(up.x0 - rule.x1) <= 1.5)
+            for up in uprights
+        )
+
+    gone: list[Rect] = []
+    under: dict[int, float] = {}  # id(line) -> how much of it is underlined
+    for vec in page.vector_objects:
+        rule = vec.bbox
+        if rule.height > UNDERLINE_THIN or rule.width < 4 or vec.curve_count:
+            continue
+        if in_a_grid(rule):
+            continue
+        for _, ln in lines:
+            box = ln.bbox
+            if not (box.x0 - 2 <= rule.x0 and rule.x1 <= box.x1 + 2):
+                continue
+            if not (box.y0 + UNDERLINE_LOW * box.height <= rule.y0 and rule.y1 <= box.y1 + 2):
+                continue
+            covered = sum(
+                max(0.0, min(s.bbox.x1, rule.x1) - max(s.bbox.x0, rule.x0))
+                for s in ln.spans if s.text.strip()
+            )
+            if covered >= UNDERLINE_UNDER_WORDS * rule.width:
+                gone.append(rule)
+                under[id(ln)] = under.get(id(ln), 0.0) + covered
+                break
+    if not gone:
+        return set()
+    for rule in gone:
+        pdf_page.add_redact_annot(fitz.Rect(*rule.expanded(0.5).as_tuple()), fill=None)
+    pdf_page.apply_redactions(
+        images=fitz.PDF_REDACT_IMAGE_NONE,
+        graphics=fitz.PDF_REDACT_LINE_ART_REMOVE_IF_COVERED,
+        text=fitz.PDF_REDACT_TEXT_NONE,
+    )
+    page.diagnostics.extra["underlines_dropped"] = len(gone)
+
+    def words_width(ln) -> float:
+        return sum(s.bbox.width for s in ln.spans if s.text.strip())
+
+    return {
+        obj.id for obj in native
+        if obj.lines and all(
+            under.get(id(ln), 0.0) >= UNDERLINED_THROUGH * words_width(ln) > 0
+            for ln in obj.lines
+        )
+    }
+
+
 def _source_look(obj) -> str:
     """The kind of face the source text was set in, for its redrawn copy."""
     if obj.style.monospace:
@@ -1473,6 +1556,8 @@ def rebuild_page(
         pdf_page.add_redact_annot(rect, fill=None)
         stats.redacted += 1
 
+    # Blocks underlined all the way through, whose translation is too.
+    underlined: set[str] = set()
     if stats.redacted:
         pdf_page.apply_redactions(
             images=fitz.PDF_REDACT_IMAGE_NONE,
@@ -1480,6 +1565,7 @@ def rebuild_page(
             text=fitz.PDF_REDACT_TEXT_REMOVE,
         )
         _drop_text_shadows(pdf_page, page, native)
+        underlined = _drop_underlines(pdf_page, page, native)
 
     # Native glyphs were just redacted away above, and a manual block has no
     # source text to remove in the first place, so this is the last moment
@@ -2238,7 +2324,7 @@ def rebuild_page(
             fill=_color_tuple(obj.manual_fill) if obj.manual_fill else None,
             leading=fit.leading,
             rows=rows,
-            underline=obj.manual_underline,
+            underline=obj.manual_underline or obj.id in underlined,
             highlight=_color_tuple(obj.manual_highlight) if obj.manual_highlight else None,
             centred=centred,
             marks=marks,
@@ -2247,7 +2333,7 @@ def rebuild_page(
             **_border_style(obj),
             **(_shape_style(obj, frames[obj.id]) if obj.id in frames else {}),
         )
-        if not layered and (obj.manual_underline or obj.manual_highlight):
+        if not layered and (obj.drawn_layout.underline or obj.manual_highlight):
             decorated.append(obj)
         top = layout_box.y0 + shift
         if turn is not None:
