@@ -498,3 +498,71 @@ def available_growth_right(
             continue
         ceiling = min(ceiling, other.x0 - 2.0)
     return max(0.0, round(ceiling - rect.x1, 2))
+
+
+# Fix layout's widths to try, as shares of the room to the right.
+ROOM_SHARES = (0.0, 0.25, 0.5, 0.75, 1.0)
+
+
+def _hits(rect: Rect, obstacles: list[Rect]) -> bool:
+    return any(rect.intersection_area(o) > 0.5 for o in obstacles)
+
+
+def fit_with_room(
+    text: str,
+    box: Rect,
+    font,
+    *,
+    base_size: float,
+    page_bounds: Rect,
+    obstacles: list[Rect],
+    room_right: float,
+    source_leading: float | None = None,
+    leading: float | None = None,
+    **lists,
+) -> tuple[Rect, FitResult] | None:
+    """The box that holds `text` at the largest size, given room.
+
+    Fix layout's answer to a block the first pass shrank or let overflow.
+    For each width from the block's own to all the room to its right, the
+    box grows down as far as nothing is in the way (no 48pt cap here), the
+    words are fitted, and the box is cut back to the rows they use, so
+    words set in the middle of their box stay beside their row.
+
+    The largest size wins; then the fewest rows (a form's row keeps to one
+    or two lines rather than a tall narrow column); then the narrowest box,
+    so a short line is not stretched across the page.
+
+    Obstacles the block already overlaps (a panel it sits on) are its
+    container, not a wall; `available_growth` bounds it by them.
+    None when no width gives the words a box they fit in.
+    """
+    walls = [o for o in obstacles if not _hits(box, [o])]
+    found: list[tuple[Rect, FitResult]] = []
+    for share in ROOM_SHARES:
+        if share and room_right <= 4.0:
+            break
+        wide = Rect(x0=box.x0, y0=box.y0, x1=box.x1 + room_right * share, y1=box.y1)
+        down = available_growth(wide, page_bounds, obstacles, limit=page_bounds.height)
+        roomy = fit_text(
+            text, Rect(x0=wide.x0, y0=wide.y0, x1=wide.x1, y1=wide.y1 + down), font,
+            base_size=base_size, source_leading=source_leading, leading=leading, **lists,
+        )
+        if not roomy.fits:
+            continue
+        tall = min(wide.height + down, max(box.height, roomy.used_height + 0.5))
+        snug = Rect(x0=wide.x0, y0=wide.y0, x1=wide.x1, y1=wide.y0 + tall)
+        if _hits(snug, walls):
+            continue
+        fit = fit_text(
+            text, snug, font, base_size=base_size, source_leading=source_leading,
+            leading=leading, **lists,
+        )
+        if fit.fits:
+            found.append((snug, fit))
+    if not found:
+        return None
+    return min(
+        found,
+        key=lambda f: (-round(f[1].font_size, 2), len(f[1].lines), f[0].width),
+    )

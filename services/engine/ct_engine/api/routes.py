@@ -56,6 +56,7 @@ from ..pipeline.edit import (
     redo,
 )
 from ..pipeline.manifest_store import document_lock
+from ..pipeline.tidy import fix_layout
 from ..providers import ProviderNotAvailable, get_translation_provider
 from ..providers.translation.chain import SERVICE_UNREACHABLE, untranslated_reason
 from ..render.debug_overlay import ALL_LAYERS, render_overlay
@@ -2310,6 +2311,37 @@ def undo_last_change(document_id: str, number: int) -> dict:
 def redo_last_change(document_id: str, number: int) -> dict:
     return _mutate(document_id, number, lambda manifest, target, store:
         redo(manifest, number, store=store, target_lang=target))
+
+
+class FixLayoutRequest(BaseModel):
+    pages: list[int] = Field(min_length=1, max_length=500)
+
+
+@router.post("/documents/{document_id}/fix-layout")
+def fix_layout_route(document_id: str, body: FixLayoutRequest) -> dict:
+    """Give the flagged text on these pages more room, in one go. Each page
+    changed gets one undo step; a page that fails is put back and named."""
+    manifests = get_manifest_store()
+    store = get_object_store()
+    with document_lock(document_id):
+        manifest = _load_manifest(document_id)
+        target = _target_language(document_id)
+        result = fix_layout(manifest, body.pages, store=store, target_lang=target)
+        if result.changed:
+            manifests.save_manifest(manifest)
+            _mark_export_stale(document_id, manifests)
+    return {
+        "changed": [
+            {
+                "page_number": page.number,
+                "revision": page.revision,
+                "can_undo": can_undo(page),
+                "can_redo": bool(page.redo_history),
+            }
+            for page in result.changed
+        ],
+        "failed": result.failed,
+    }
 
 
 @router.get("/documents/{document_id}/project")

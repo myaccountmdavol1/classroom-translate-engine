@@ -207,7 +207,8 @@ def reset_edit(
         raise EditError(f"Page {page_number} does not exist in this document.")
     obj = _editable_object(page, object_id)
 
-    if obj.machine_translated_text is None and not obj.has_manual_layout:
+    tidied = obj.tidy_room or obj.tidy_font_size is not None
+    if obj.machine_translated_text is None and not obj.has_manual_layout and not tidied:
         raise EditError("There is no earlier version to go back to.")
     # After the refusal above, so a reset with nothing to reset does not
     # spend a history slot -- and before any field is touched, which is the
@@ -220,6 +221,10 @@ def reset_edit(
     # so a reload disables Undo" -- undo is server-side and rides along in
     # the manifest; it was this.)
     push_history(page)
+    # Fix layout's room goes with the rest of the layout, in both branches
+    # below.
+    obj.tidy_room = False
+    obj.tidy_font_size = None
     # A line's place and turn are its two ends, which she drew: Reset keeps
     # them, and gives it a new line's look.
     held = (obj.manual_bbox, obj.manual_angle) if _is_line(obj) else None
@@ -989,6 +994,9 @@ def _place(obj: TextObject, box: Rect, page: Page) -> None:
         if drawn:
             obj.manual_angle = _angle(drawn)
     obj.manual_bbox = _clamped(box, page, turned=obj.manual_angle is not None)
+    # A box she placed is hers; Fix layout's extra room no longer applies.
+    obj.tidy_room = False
+    obj.tidy_font_size = None
 
 
 def _turn(obj: TextObject, angle: float | None, *, pinned: bool) -> None:
@@ -1093,6 +1101,8 @@ _EDITABLE_FIELDS = (
     "manual_list_style",
     "manual_list_start",
     "manual_indents",
+    "tidy_room",
+    "tidy_font_size",
     "z_order",
     "suppressed",
     "manually_edited",
@@ -1100,10 +1110,13 @@ _EDITABLE_FIELDS = (
 )
 
 
-# Only her style choices fall back to their defaults when a snapshot lacks
-# them. The others' defaults are not "unset": translation_status would
-# become PENDING (locking the block) and z_order would lose its place.
-_DEFAULT_WHEN_MISSING = tuple(f for f in _EDITABLE_FIELDS if f.startswith("manual_"))
+# Only her style choices, and Fix layout's room, fall back to their defaults
+# when a snapshot lacks them. The others' defaults are not "unset":
+# translation_status would become PENDING (locking the block) and z_order
+# would lose its place.
+_DEFAULT_WHEN_MISSING = tuple(
+    f for f in _EDITABLE_FIELDS if f.startswith(("manual_", "tidy_"))
+)
 
 
 def _coerce(field: str, value):
@@ -1717,6 +1730,9 @@ def combine_blocks(
     keeper.manual_indents = None
     keeper.keep_original = False
     keeper.retry_background = True
+    # The combined block is a new box; it must not inherit Fix layout's marks.
+    keeper.tidy_room = False
+    keeper.tidy_font_size = None
     _forget_translation_only(keeper, translated)
     if not keeper.is_manual_block:
         keeper.manually_edited = False

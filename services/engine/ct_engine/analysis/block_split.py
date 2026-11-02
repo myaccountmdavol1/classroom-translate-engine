@@ -534,6 +534,7 @@ def split_page_blocks(page: Page) -> int:
         return 0
     rejoin_item_tails(page)
     result: list[TextObject] = []
+    originals = {id(b) for b in page.text_objects}
     rules = [
         v.bbox for v in page.vector_objects
         if min(v.bbox.width, v.bbox.height) <= RULE_THICKNESS
@@ -556,6 +557,17 @@ def split_page_blocks(page: Page) -> int:
                             result.extend(split_text_block(part))
     created = len(result) - len(page.text_objects)
     if created:
+        # Most splits copy the parent's style, so a 7.4pt "Section N/A" label
+        # split from its 13pt heading believed it was 13pt, and the first pass
+        # then reported it as "made smaller to fit". Each new piece takes the
+        # style of its own text, the way the reader styles a whole block.
+        from ..ingest.pdf_parser import _dominant_style
+        for t in result:
+            if id(t) in originals:
+                continue
+            spans = [s for ln in t.lines for s in ln.spans]
+            if spans:
+                t.style = _dominant_style(spans)
         for t in result:
             t.norm_bbox = t.bbox.normalized(page.width, page.height)
         page.text_objects = result

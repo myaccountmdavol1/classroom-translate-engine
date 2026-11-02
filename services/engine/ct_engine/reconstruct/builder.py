@@ -43,6 +43,7 @@ from .fitting import (
     available_growth_right,
     fit_text,
     fit_to_box,
+    fit_with_room,
     justifiable,
     wrap_rows,
     wrap_with_ends,
@@ -1316,6 +1317,12 @@ def _obstacles(page: Page, exclude_id: str) -> list[Rect]:
     # Response areas are inviolable; treating them as obstacles is what stops
     # translated text eating a student's writing space.
     boxes += [r.bbox for r in page.response_areas]
+    # So are a fillable form's own fields: its checkboxes and typing boxes.
+    # A zero-size widget is no field at all.
+    boxes += [
+        f.bbox for f in page.form_fields
+        if f.bbox.width >= 1.0 and f.bbox.height >= 1.0
+    ]
     # A table's vertical rules are cell walls: text widened past one ends up
     # in the next cell. Horizontal rules are left out -- writing lines are
     # already response areas, and the rest must not stop downward growth.
@@ -1886,6 +1893,9 @@ def rebuild_page(
 
         if obj.manual_font_size:
             base_size = obj.manual_font_size
+        elif obj.tidy_font_size:
+            # Fix layout's shared size for a column of same-size rows.
+            base_size = min(base_size, obj.tidy_font_size)
         box = Rect(
             x0=source_box.x0,
             y0=source_box.y0,
@@ -1981,6 +1991,29 @@ def rebuild_page(
         )
         # Told to the editor (see TextObject.widen_x1), needed or not.
         obj.widen_x1 = round(box.x1 + room_right, 2) if room_right > 4.0 else None
+        if obj.tidy_room and upright_text and not obj.fill_box:
+            # Fix layout: all the room there is, not the first pass's caps.
+            # Every line and box drawn on the page is a wall here too (a
+            # form's checkboxes, its notes boxes, the rule under a row),
+            # except one the block already sits on.
+            walls = obstacles + [
+                v.bbox for v in page.vector_objects
+                if v.bbox.intersection_area(obj.bbox) <= 0.5
+            ]
+            room = available_growth_right(
+                obj.bbox, page.bounds, walls, right_margin=text_margin,
+                limit_ratio=100.0, absolute_allowance=page.bounds.width,
+            )
+            found = fit_with_room(
+                text, box, rfont, base_size=base_size, page_bounds=page.bounds,
+                obstacles=walls, room_right=room,
+                source_leading=obj.line_spacing, leading=ratio, **lists,
+            )
+            if found is not None and (not fit.fits or found[1].font_size >= fit.font_size):
+                box, fit = found
+                fit.notes.append("text given more room by Fix layout")
+                obj.widen_x1 = round(obj.bbox.x1 + room, 2) if room > 4.0 else None
+                return text, rfont, font, box, fit
         if not fit.fits or fit.shrink_ratio < 1.0 or len(fit.lines) > 1:
             extra_width = room_right if upright_text else raster_widen
             if obj.fill_box:

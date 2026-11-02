@@ -621,6 +621,16 @@ class TextObject(BaseObject):
     # an indent does not squeeze them before the new picture arrives. None
     # for a block placed by hand, turned, or in a picture.
     widen_x1: float | None = None
+    # Fix layout gave this block more room than a first translation does:
+    # wider into the empty space beside it and down to the next thing below
+    # it, at the smallest box that holds its words at the largest size.
+    # Kept, so every later rebuild lays it out the same way. Cleared by
+    # Reset, and ignored once she places the box herself.
+    tidy_room: bool = False
+    # Fix layout's size for a block in a column of same-size rows, so one
+    # row is not smaller than the rest. A cap on the starting size, never a
+    # size she chose; None for none.
+    tidy_font_size: float | None = None
 
     @property
     def text(self) -> str:
